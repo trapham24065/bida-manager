@@ -58,6 +58,20 @@ class ShopSettingForm
                             ->placeholder('NGUYEN VAN A')
                             ->required(),
                     ]),
+                Section::make('Cấu hình Thanh toán')
+                    ->schema([
+                        Select::make('rounding_mode')
+                            ->label('Chế độ làm tròn tiền (Đơn vị: 1.000đ)')
+                            ->options([
+                                'none' => 'Không làm tròn (Giữ nguyên lẻ)',
+                                'down' => 'Luôn làm tròn XUỐNG (Khuyên dùng - Khách vui)',
+                                'up'   => 'Luôn làm tròn LÊN (Lợi cho quán)',
+                                'auto' => 'Tự động (>=500 lên, <500 xuống)',
+                            ])
+                            ->default('none')
+                            ->required()
+                            ->helperText('Ví dụ đơn hàng 43.500đ. Xuống = 43.000, Lên = 44.000.'),
+                    ]),
             ]);
     }
 

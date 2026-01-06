@@ -2,10 +2,13 @@
 
 namespace App\Filament\Resources\Tables\Tables;
 
+use App\Models\Customer;
+use App\Models\CustomerRank;
 use App\Models\GameSession;
 use App\Models\OrderItem;
 use App\Models\PricingRule;
 use App\Models\Product;
+use App\Models\ShopSetting;
 use App\Models\Table as TableModel;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -229,9 +232,9 @@ class TablesTable
                         function (
                             TableModel $record,
                             array $data,
-                            \Filament\Actions\Action $action
-                        ) { // Thêm $action vào tham số
-                            // === 1. KIỂM TRA CA LÀM VIỆC (MỚI THÊM) ===
+                            Action $action
+                        ) {
+                            // === 1. KIỂM TRA CA LÀM VIỆC ===
                             $currentShift = \App\Models\WorkShift::myCurrentShift();
                             if (!$currentShift) {
                                 Notification::make()
@@ -239,7 +242,6 @@ class TablesTable
                                     ->body('Bạn phải "Vào Ca" trước khi thực hiện thanh toán.')
                                     ->danger()
                                     ->actions([
-                                        // Nút bấm chuyển nhanh sang trang quản lý ca
                                         Action::make('open_shift')
                                             ->label('Đi mở ca ngay')
                                             ->url('/admin/work-shifts')
@@ -248,53 +250,85 @@ class TablesTable
                                     ->persistent()
                                     ->send();
 
-                                $action->halt(); // Dừng lại ngay
+                                $action->halt();
                                 return;
                             }
-                            // ==========================================
+
                             $session = $record->currentSession;
                             if (!$session) {
                                 Notification::make()->title('Lỗi phiên chơi')->danger()->send();
                                 return;
                             }
 
-                            // 1. TÍNH TỔNG TIỀN GỐC (SUBTOTAL) TRƯỚC
+                            // 2. TÍNH TỔNG TIỀN GỐC (SUBTOTAL)
                             $timeMoney = self::calculateTimeMoney($record, $session);
                             $serviceMoney = $session->orderItems->sum('total');
-                            $subTotal = $timeMoney + $serviceMoney; // Ví dụ: 12.000 đ
+                            $subTotal = $timeMoney + $serviceMoney;
 
-                            // 2. VALIDATE: KIỂM TRA GIẢM GIÁ HỢP LỆ KHÔNG?
+                            // 3. XỬ LÝ GIẢM GIÁ
                             $discount = 0;
                             if ($data['discount_percent'] > 0) {
                                 $discount = ($subTotal * $data['discount_percent']) / 100;
                             } elseif ($data['discount_amount'] > 0) {
-                                $discount = $data['discount_amount']; // Ví dụ: 200.000 đ
+                                $discount = $data['discount_amount'];
                             }
 
-                            // === CHẶN NẾU GIẢM GIÁ LỚN HƠN TỔNG TIỀN ===
+                            // Validate giảm giá
                             if ($discount > $subTotal) {
                                 Notification::make()
                                     ->title('Giảm giá không hợp lệ!')
                                     ->body(
-                                        'Số tiền giảm ('.number_format($discount).') lớn hơn tổng tiền hàng ('
-                                        .number_format($subTotal).').'
+                                        'Số tiền giảm ('.number_format($discount).') lớn hơn tổng tiền ('.number_format(
+                                            $subTotal
+                                        ).').'
                                     )
                                     ->danger()
-                                    ->persistent() // Giữ thông báo không tự tắt để nhân viên đọc
+                                    ->persistent()
                                     ->send();
 
-                                $action->halt(); // DỪNG LẠI NGAY, KHÔNG LƯU, KHÔNG IN
+                                $action->halt();
                                 return;
                             }
-                            // ============================================
 
-                            // 3. Chốt tổng tiền
-                            $finalTotal = $subTotal - $discount; // Chắc chắn >= 0 vì đã check ở trên
+                            // Tính tổng tiền sơ bộ (chưa làm tròn)
+                            $finalTotal = $subTotal - $discount;
 
-                            // 4. Lưu dữ liệu
+                            // ============================================================
+                            // === 4. LOGIC LÀM TRÒN TIỀN THÔNG MINH (MỚI THÊM) ===
+                            // ============================================================
+
+                            // Lấy cấu hình từ ShopSetting
+                            $setting = ShopSetting::first();
+                            $roundingMode = $setting?->rounding_mode ?? 'none';
+                            $roundingDiff = 0; // Biến lưu số tiền chênh lệch
+
+                            // Chỉ làm tròn khi tiền > 0 và có bật chế độ làm tròn
+                            if ($finalTotal > 0 && $roundingMode !== 'none') {
+                                $originalTotal = $finalTotal;
+
+                                switch ($roundingMode) {
+                                    case 'down': // Luôn làm tròn XUỐNG (43.900 -> 43.000)
+                                        $finalTotal = floor($originalTotal / 1000) * 1000;
+                                        break;
+
+                                    case 'up': // Luôn làm tròn LÊN (43.100 -> 44.000)
+                                        $finalTotal = ceil($originalTotal / 1000) * 1000;
+                                        break;
+
+                                    case 'auto': // Tự động (>=500 lên, <500 xuống)
+                                        $finalTotal = round($originalTotal / 1000) * 1000;
+                                        break;
+                                }
+
+                                $roundingDiff = $finalTotal - $originalTotal;
+                            }
+                            // ============================================================
+
+                            // 5. LƯU DỮ LIỆU (Cập nhật cả rounding_amount)
                             $session->update([
                                 'end_time'         => now(),
                                 'total_money'      => $finalTotal,
+                                'rounding_amount'  => $roundingDiff,
                                 'payment_method'   => $data['payment_method'],
                                 'discount_percent' => $data['discount_percent'],
                                 'discount_amount'  => $data['discount_amount'],
@@ -303,18 +337,17 @@ class TablesTable
                                 'customer_id'      => $data['customer_id'],
                                 'work_shift_id'    => $currentShift->id,
                             ]);
-// 5. CỘNG ĐIỂM & XẾP HẠNG TỰ ĐỘNG (LOGIC MỚI)
+
+                            // 6. CỘNG ĐIỂM & XẾP HẠNG (Dùng finalTotal đã làm tròn để tính điểm)
                             if ($data['customer_id']) {
-                                $customer = \App\Models\Customer::find($data['customer_id']);
+                                $customer = Customer::find($data['customer_id']);
                                 if ($customer) {
-                                    // Cộng tiền & điểm
                                     $customer->total_spending += $finalTotal;
-                                    $pointsEarned = floor($finalTotal / 100000);
+                                    $pointsEarned = floor($finalTotal / 100000); // 100k = 1 điểm
                                     $customer->points += $pointsEarned;
 
-                                    // --- LOGIC TỰ ĐỘNG XẾP HẠNG MỚI (DỰA VÀO BẢNG RANK) ---
-                                    // Tìm hạng cao nhất mà khách đạt được
-                                    $newRank = \App\Models\CustomerRank::where(
+                                    // Check lên hạng
+                                    $newRank = CustomerRank::where(
                                         'min_spending',
                                         '<=',
                                         $customer->total_spending
@@ -322,17 +355,14 @@ class TablesTable
                                         ->orderByDesc('min_spending')
                                         ->first();
 
-                                    if ($newRank) {
-                                        // Nếu hạng thay đổi thì cập nhật
-                                        if ($customer->customer_rank_id !== $newRank->id) {
-                                            $customer->customer_rank_id = $newRank->id;
-                                            Notification::make()
-                                                ->title("🎉 KHÁCH LÊN HẠNG!")
-                                                ->body("{$customer->name} đã đạt hạng: {$newRank->name}")
-                                                ->success()
-                                                ->persistent()
-                                                ->send();
-                                        }
+                                    if ($newRank && $customer->customer_rank_id !== $newRank->id) {
+                                        $customer->customer_rank_id = $newRank->id;
+                                        Notification::make()
+                                            ->title("🎉 KHÁCH LÊN HẠNG!")
+                                            ->body("{$customer->name} đã đạt hạng: {$newRank->name}")
+                                            ->success()
+                                            ->persistent()
+                                            ->send();
                                     }
                                     $customer->save();
 
@@ -342,6 +372,7 @@ class TablesTable
                                         ->send();
                                 }
                             }
+
                             Notification::make()->title('Thanh toán thành công!')->success()->send();
 
                             return redirect()->route('invoice.print', $session->id);
