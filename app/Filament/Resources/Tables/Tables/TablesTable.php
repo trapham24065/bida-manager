@@ -188,7 +188,15 @@ class TablesTable
                                     $set('discount_percent', 0);
                                 }
                             }),
-
+                        Select::make('payment_method')
+                            ->label('Hình thức thanh toán')
+                            ->options([
+                                'cash'     => 'Tiền mặt',
+                                'transfer' => 'Chuyển khoản / QR',
+                            ])
+                            ->default('cash')
+                            ->required()
+                            ->native(false), // Giao diện đẹp hơn
                         // 3. Form Giảm giá
                         Section::make('Ưu đãi / Giảm giá')
                             ->schema([
@@ -223,6 +231,27 @@ class TablesTable
                             array $data,
                             \Filament\Actions\Action $action
                         ) { // Thêm $action vào tham số
+                            // === 1. KIỂM TRA CA LÀM VIỆC (MỚI THÊM) ===
+                            $currentShift = \App\Models\WorkShift::myCurrentShift();
+                            if (!$currentShift) {
+                                Notification::make()
+                                    ->title('Chưa mở ca làm việc!')
+                                    ->body('Bạn phải "Vào Ca" trước khi thực hiện thanh toán.')
+                                    ->danger()
+                                    ->actions([
+                                        // Nút bấm chuyển nhanh sang trang quản lý ca
+                                        Action::make('open_shift')
+                                            ->label('Đi mở ca ngay')
+                                            ->url('/admin/work-shifts')
+                                            ->button(),
+                                    ])
+                                    ->persistent()
+                                    ->send();
+
+                                $action->halt(); // Dừng lại ngay
+                                return;
+                            }
+                            // ==========================================
                             $session = $record->currentSession;
                             if (!$session) {
                                 Notification::make()->title('Lỗi phiên chơi')->danger()->send();
@@ -266,11 +295,13 @@ class TablesTable
                             $session->update([
                                 'end_time'         => now(),
                                 'total_money'      => $finalTotal,
+                                'payment_method'   => $data['payment_method'],
                                 'discount_percent' => $data['discount_percent'],
                                 'discount_amount'  => $data['discount_amount'],
                                 'note'             => $data['note'],
                                 'status'           => 'completed',
                                 'customer_id'      => $data['customer_id'],
+                                'work_shift_id'    => $currentShift->id,
                             ]);
 // 5. CỘNG ĐIỂM & XẾP HẠNG TỰ ĐỘNG (LOGIC MỚI)
                             if ($data['customer_id']) {

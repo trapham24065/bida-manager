@@ -16,9 +16,12 @@ use Filament\Tables\Table;
 
 class CustomerRankResource extends Resource
 {
+
     protected static ?string $model = CustomerRank::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-trophy';
+
+    protected static ?string $navigationLabel = 'Quản lí xếp hạng';
 
     protected static ?string $recordTitleAttribute = 'name';
 
@@ -42,9 +45,10 @@ class CustomerRankResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListCustomerRanks::route('/'),
+            'index'  => ListCustomerRanks::route('/'),
             'create' => CreateCustomerRank::route('/create'),
-            'edit' => EditCustomerRank::route('/{record}/edit'),
+            'edit'   => EditCustomerRank::route('/{record}/edit'),
         ];
     }
+
 }

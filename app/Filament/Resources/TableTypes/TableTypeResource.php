@@ -21,7 +21,7 @@ class TableTypeResource extends Resource
 
     protected static ?string $model = TableType::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|null|BackedEnum $navigationIcon = 'heroicon-o-table-cells';
 
     protected static ?string $navigationLabel = 'Loại Bàn';
 

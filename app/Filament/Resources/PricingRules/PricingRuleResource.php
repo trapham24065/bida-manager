@@ -19,7 +19,7 @@ class PricingRuleResource extends Resource
 
     protected static ?string $model = PricingRule::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-adjustments-horizontal';
 
     protected static ?string $navigationLabel = 'Quy tắc định giá';
 

@@ -21,7 +21,7 @@ class TableResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
-    protected static string|null|BackedEnum $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string|null|BackedEnum $navigationIcon = 'heroicon-o-calendar-days';
 
     // Đặt lại nhãn cho dễ hiểu
     protected static ?string $navigationLabel = 'Quản lý Bàn';

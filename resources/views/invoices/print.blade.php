@@ -6,24 +6,39 @@
 
     <style>
         @page {
-            size: auto;
+            size: auto; /* Khổ giấy in nhiệt K80 */
             margin: 0;
         }
         body {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 14px;
-            width: 80mm;
+            font-family: 'Arial', sans-serif;
+            font-size: 12px;
+            width: 72mm; /* Trừ lề an toàn cho máy in */
             margin: 0 auto;
-            padding: 10px;
+            padding: 5px;
             background: #fff;
+            color: #000;
         }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .bold { font-weight: bold; }
-        .line { border-bottom: 1px dashed #000; margin: 10px 0; }
+        .uppercase { text-transform: uppercase; }
+        .line { border-bottom: 1px dashed #000; margin: 8px 0; }
+
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; font-size: 12px; }
+        th { text-align: left; font-size: 11px; border-bottom: 1px solid #000; padding-bottom: 2px;}
         td { padding: 4px 0; vertical-align: top; }
+
+        /* CSS cho 2 trường hợp thanh toán */
+        .qr-box { margin-top: 10px; text-align: center; }
+        .cash-box {
+            border: 2px solid #000;
+            padding: 8px;
+            margin: 10px 10px;
+            text-align: center;
+            border-radius: 4px;
+        }
+
+        /* Ẩn nút in khi in ra giấy */
         @media print {
             .no-print { display: none; }
         }
@@ -35,11 +50,12 @@
 @php
     use Carbon\Carbon;
 
+    // Lấy thông tin quán
     $setting = \App\Models\ShopSetting::first();
 
-    // 1. TÍNH LẠI THỜI GIAN CHƠI CHÍNH XÁC
+    // 1. TÍNH THỜI GIAN CHƠI
     $start = Carbon::parse($session->start_time);
-    $end   = Carbon::parse($session->end_time);
+    $end   = $session->end_time ? Carbon::parse($session->end_time) : now();
 
     $seconds = $end->diffInSeconds($start);
     $minutes = max(1, (int) ceil($seconds / 60)); // Làm tròn phút
@@ -47,120 +63,94 @@
     $hours = intdiv($minutes, 60);
     $remainMinutes = $minutes % 60;
 
-    // 2. TÍNH TIỀN GIỜ GỐC (Tính lại từ đầu thay vì suy ngược)
-    // Cần copy lại logic tính tiền giờ đơn giản hoặc lấy giá trung bình
-    // Tuy nhiên, để chính xác nhất mà không cần query lại Rules phức tạp:
-    // Ta lấy: Tổng tiền cuối (trong DB) + Tiền giảm (trong DB) - Tiền món = Tiền giờ
-    // NHƯNG ĐỂ TRÁNH LỖI "GIẢM 200k", TA SẼ LÀM NHƯ SAU:
+    // 2. TÍNH TOÁN TIỀN HIỂN THỊ
+    $finalTotal = $session->total_money; // Khách phải trả
+    $serviceMoney = $session->orderItems->sum('total'); // Tiền nước
 
-    // A. Lấy tiền dịch vụ
-    $serviceMoney = $session->orderItems->sum('total');
-
-    // B. Tính tiền giờ (Giả lập lại logic tính giá - Cách an toàn nhất là lấy từ subtotal nếu có lưu, nhưng ta không lưu subtotal)
-    // Mẹo: Vì ta không muốn copy lại 100 dòng logic tính tiền vào Blade, ta sẽ dùng Logic:
-    // Tổng Gốc Thực Tế = (Tiền trả + Giảm giá trong DB)
-    // Nếu Giảm giá > Tổng gốc (trường hợp lỗi cũ) -> Phải Cắt Bớt.
-
-    $finalTotal = $session->total_money; // Khách trả 0đ
-    $storedDiscount = $session->discount_amount; // DB lưu 200k
-
-    // Tổng gốc ảo (theo DB cũ bị lỗi) = 0 + 200k = 200k -> SAI
-    // Vì vậy, ở đây ta chỉ có thể hiển thị đúng nếu BƯỚC 1 (Validate) đã được áp dụng.
-
-    // TUY NHIÊN, ĐỂ HIỂN THỊ HỢP LÝ CHO CÁC ĐƠN LỖI:
-    // Ta sẽ tính lại Tiền Giờ theo giá mặc định (ước lượng) để hiển thị không bị số 0
-    // Hoặc chấp nhận hiển thị theo DB nhưng ghi chú.
-
-    // CÁCH TỐT NHẤT: TÍNH XUÔI
+    // Tính ngược lại Tổng gốc (SubTotal) để hiển thị cho khớp
     $tempSubTotal = $finalTotal;
 
-    if ($session->discount_percent > 0) {
-        // Nếu giảm % thì tính ngược lại được
-        if ($session->discount_percent < 100) {
-             $tempSubTotal = $finalTotal / (1 - ($session->discount_percent / 100));
-        }
+    if ($session->discount_percent > 0 && $session->discount_percent < 100) {
+         $tempSubTotal = $finalTotal / (1 - ($session->discount_percent / 100));
     } else {
-        $tempSubTotal = $finalTotal + $session->discount_amount;
+        $tempSubTotal = $finalTotal + ($session->discount_amount ?? 0);
     }
 
-    // Logic hiển thị an toàn:
-    // Tiền giờ = Tổng (đã cộng lại giảm giá) - Tiền món
+    // Tiền giờ = Tổng gốc - Tiền nước
     $originalTimeMoney = $tempSubTotal - $serviceMoney;
-
-    // Nếu Tiền giờ bị Âm (do nhập giảm giá lố bịch), ép về 0
     if ($originalTimeMoney < 0) $originalTimeMoney = 0;
 
-    // Tính lại Tổng gốc chuẩn để hiển thị
+    // Tổng gốc chuẩn
     $subTotal = $originalTimeMoney + $serviceMoney;
 
-    // Tính lại Tiền giảm giá hiển thị (để khớp con số)
-    // Discount hiển thị = Tổng gốc - Khách trả
+    // Tiền giảm giá hiển thị
     $displayDiscount = $subTotal - $finalTotal;
-
 @endphp
 
-{{-- ================= HEADER ================= --}}
+{{-- ================= HEADER QUÁN ================= --}}
 <div class="text-center">
-    <h2 style="margin-bottom:5px;text-transform:uppercase;">
-        {{ $setting->shop_name ?? 'CLB BIDA' }}
+    <h2 class="uppercase" style="margin: 5px 0; font-size: 16px;">
+        {{ $setting->shop_name ?? 'BIDA CLUB' }}
     </h2>
     @if($setting?->address)
-        <p style="font-size:12px;margin:2px 0;">ĐC: {{ $setting->address }}</p>
+        <p style="margin:2px 0;">ĐC: {{ $setting->address }}</p>
     @endif
     @if($setting?->phone)
-        <p style="font-size:12px;margin:2px 0;">SĐT: {{ $setting->phone }}</p>
+        <p style="margin:2px 0;">SĐT: {{ $setting->phone }}</p>
     @endif
 </div>
 
 <div class="line"></div>
 
-{{-- ================= INFO ================= --}}
+{{-- ================= THÔNG TIN PHIẾU ================= --}}
 <div>
-    <table style="font-size: 13px;">
+    <table>
         <tr>
-            <td>Hóa đơn: <strong>#{{ $session->id }}</strong></td>
-            <td class="text-right">Bàn: <strong>{{ $session->bidaTable->name }}</strong></td>
+            <td>HĐ: <strong>#{{ $session->id }}</strong></td>
+            <td class="text-right">Bàn: <strong
+                    style="font-size: 14px;">{!! $session->bidaTable->name ?? 'Bàn ?' !!}</strong>
+            </td>
         </tr>
         <tr>
             <td>Vào: {{ $start->format('H:i') }}</td>
             <td class="text-right">Ra: {{ $end->format('H:i') }}</td>
         </tr>
         <tr>
-            <td colspan="2">Ngày: {{ $end->format('d/m/Y') }}</td>
+            <td colspan="2">Ngày: {{ $end->format('d/m/Y') }} - Thu ngân: {{ auth()->user()->name ?? 'NV' }}</td>
         </tr>
     </table>
 </div>
 
 <div class="line"></div>
 
-{{-- ================= CHI TIẾT ================= --}}
+{{-- ================= CHI TIẾT MÓN ================= --}}
 <table>
     <thead>
-    <tr style="border-bottom: 1px solid #ddd;">
-        <th style="width:45%">Tên món</th>
-        <th style="width:15%">SL</th>
-        <th style="width:40%" class="text-right">Thành tiền</th>
+    <tr>
+        <th style="width:50%">Tên món/DV</th>
+        <th style="width:15%; text-align: center;">SL</th>
+        <th style="width:35%" class="text-right">Thành tiền</th>
     </tr>
     </thead>
 
     <tbody>
-    {{-- 1. DÒNG TIỀN GIỜ (HIỂN THỊ GIÁ GỐC) --}}
+    {{-- 1. TIỀN GIỜ --}}
     <tr>
         <td>
             <strong>Tiền giờ</strong>
-            <div style="font-size: 11px; color: #555;">
-                {{ $hours > 0 ? $hours.'h ' : '' }}{{ $remainMinutes }}p
+            <div style="font-size: 10px; color: #555; margin-top: 2px;">
+                ({{ $hours > 0 ? $hours.'h' : '' }}{{ $remainMinutes }}p)
             </div>
         </td>
-        <td>1</td>
+        <td style="text-align: center;">1</td>
         <td class="text-right bold">{{ number_format($originalTimeMoney) }}</td>
     </tr>
 
-    {{-- 2. CÁC MÓN ĐÃ GỌI --}}
+    {{-- 2. DỊCH VỤ / ĐỒ UỐNG --}}
     @foreach($session->orderItems as $item)
         <tr>
             <td>{{ $item->product->name }}</td>
-            <td>{{ $item->quantity }}</td>
+            <td style="text-align: center;">{{ $item->quantity }}</td>
             <td class="text-right">{{ number_format($item->total) }}</td>
         </tr>
     @endforeach
@@ -171,64 +161,76 @@
 
 {{-- ================= TỔNG KẾT TIỀN ================= --}}
 <div class="text-right">
-    {{-- 1. Tổng tiền hàng (Subtotal) --}}
-    <p style="margin: 5px 0;">Tổng tiền hàng: <strong>{{ number_format($subTotal) }} đ</strong></p>
+    <p style="margin: 4px 0;">Tổng cộng: <strong>{{ number_format($subTotal) }}</strong></p>
 
-    {{-- 2. Dòng giảm giá (Chỉ hiện nếu có giảm) --}}
+    {{-- Chỉ hiện giảm giá nếu có --}}
     @if($displayDiscount > 0)
-        <p style="margin: 5px 0; color: #444; font-style: italic;">
+        <p style="margin: 4px 0; color: #333;">
             Giảm giá
             @if($session->discount_percent > 0)
                 ({{ $session->discount_percent }}%)
             @endif:
-            -{{ number_format($displayDiscount) }} đ
+            -{{ number_format($displayDiscount) }}
         </p>
         @if($session->note)
-            <p style="font-size: 11px; color: #666; font-style: italic; margin-bottom: 5px;">(Lý
-                do: {{ $session->note }})</p>
+            <p style="font-size: 10px; font-style: italic; margin: 0;">(Lý do: {{ $session->note }})</p>
         @endif
-        <div style="border-bottom: 1px solid #000; width: 50%; margin-left: auto; margin-bottom: 5px;"></div>
+        <div
+            style="border-bottom: 1px dotted #000; width: 60%; margin-left: auto; margin-top: 4px; margin-bottom: 4px;"></div>
     @endif
 
-    {{-- 3. Tổng thanh toán cuối cùng (Final Total) --}}
-    <p class="bold" style="font-size:18px; margin-top: 10px;">
-        THANH TOÁN: {{ number_format($finalTotal) }} đ
+    <p class="bold" style="font-size:16px; margin-top: 8px;">
+        KHÁCH TRẢ: {{ number_format($finalTotal) }} đ
     </p>
 </div>
 
-{{-- ================= QR CODE ================= --}}
-@if($setting && $setting->bank_account && $finalTotal > 0)
-    @php
-        $qrUrl = "https://img.vietqr.io/image/{$setting->bank_id}-{$setting->bank_account}-qr_only.png"
-            ."?amount={$finalTotal}"  // Dùng số tiền cuối cùng sau giảm giá
-            ."&addInfo=HD{$session->id}"
-            ."&accountName={$setting->bank_account_name}";
-    @endphp
+{{-- ================= LOGIC QUAN TRỌNG: QR HAY TIỀN MẶT ================= --}}
+@if($finalTotal > 0)
+    {{-- TRƯỜNG HỢP 1: CHUYỂN KHOẢN -> HIỆN QR CODE --}}
+    @if($session->payment_method === 'transfer' && $setting && $setting->bank_account)
+        @php
+            // Link tạo mã QR VietQR tự động
+            $qrUrl = "https://img.vietqr.io/image/{$setting->bank_id}-{$setting->bank_account}-qr_only.png"
+                ."?amount={$finalTotal}"
+                ."&addInfo=HD{$session->id} Ban{$session->table_id}"
+                ."&accountName={$setting->bank_account_name}";
+        @endphp
 
-    <div class="text-center" style="margin-top:15px;">
-        <img src="{{ $qrUrl }}" style="width:150px; height:150px;">
-        <p style="font-size:11px; margin-top:5px;">Quét mã để thanh toán</p>
-    </div>
+        <div class="qr-box">
+            <img src="{{ $qrUrl }}" style="width:130px; height:130px; border: 1px solid #ddd;">
+            <p class="bold" style="margin: 5px 0 0 0; font-size: 11px;">QUÉT MÃ ĐỂ THANH TOÁN</p>
+            <p style="font-size: 10px; margin: 0;">{{ $setting->bank_account_name }}</p>
+        </div>
+
+        {{-- TRƯỜNG HỢP 2: TIỀN MẶT -> HIỆN KHUNG XÁC NHẬN --}}
+    @else
+        <div class="cash-box">
+            <h3 style="margin: 0; font-size: 14px; font-weight: bold; text-transform: uppercase;">ĐÃ THANH TOÁN</h3>
+            <p style="margin: 2px 0 0 0; font-size: 11px;">(Tiền mặt)</p>
+        </div>
+    @endif
 @endif
 
 {{-- ================= FOOTER ================= --}}
-<div class="text-center" style="margin-top:20px;">
-    <p style="font-size: 12px;"><i>Cảm ơn quý khách & Hẹn gặp lại!</i></p>
-    @if($setting->wifi_pass)
-        <p style="font-size: 12px; border: 1px dashed #333; display: inline-block; padding: 5px 10px; margin-top: 5px;">
-            Wifi: {{ $setting->wifi_pass }}
-        </p>
+<div class="text-center" style="margin-top:15px; border-top: 1px dashed #000; padding-top: 10px;">
+    <p style="font-size: 11px; margin: 0;">Cảm ơn quý khách & Hẹn gặp lại!</p>
+
+    @if($setting && $setting->wifi_pass)
+        <div style="margin-top: 8px; font-size: 11px;">
+            <strong>Pass Wifi:</strong> {{ $setting->wifi_pass }}
+        </div>
     @endif
 </div>
 
-<div class="no-print text-center" style="margin-top:30px; margin-bottom: 50px;">
-    <a href="/admin/tables"
-       style="padding:12px 25px; background:#222; color:#fff; border-radius:6px; text-decoration:none; font-weight: bold;">
-        ⬅ Quay lại Trang chủ
+{{-- Nút điều khiển (Không in ra giấy) --}}
+<div class="no-print text-center"
+     style="margin-top:30px; margin-bottom: 50px; padding-top: 20px; border-top: 1px solid #eee;">
+    <a href="/admin/tables" style="color: #555; text-decoration: none; font-size: 13px; margin-right: 15px;">
+        ⬅ Về trang chủ
     </a>
     <button onclick="window.print()"
-            style="padding:12px 25px; background:#007bff; color:#fff; border:none; border-radius:6px; font-weight: bold; cursor: pointer; margin-left: 10px;">
-        🖨 In hóa đơn
+            style="background: #000; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+        🖨 IN HÓA ĐƠN
     </button>
 </div>
 
