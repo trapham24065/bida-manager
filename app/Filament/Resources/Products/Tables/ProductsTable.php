@@ -14,6 +14,7 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class ProductsTable
@@ -28,7 +29,10 @@ class ProductsTable
                     ->disk('public')
                     ->circular()
                     ->defaultImageUrl(url('/images/placeholder.png')),
-
+                TextColumn::make('category.name')
+                    ->label('Nhóm')
+                    ->sortable()
+                    ->badge(),
                 TextColumn::make('name')
                     ->label('Tên món')
                     ->searchable()
@@ -55,7 +59,9 @@ class ProductsTable
                 IconColumn::make('is_active')->boolean()->label('Mở bán'),
             ])
             ->filters([
-                //
+                SelectFilter::make('category')
+                    ->relationship('category', 'name')
+                    ->label('Lọc theo nhóm'),
             ])
             ->recordActions([
                 EditAction::make(),

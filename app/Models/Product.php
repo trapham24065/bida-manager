@@ -55,4 +55,9 @@ class Product extends Model
         )->withPivot(['quantity']); // <--- Bắt buộc phải có để lưu số lượng
     }
 
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
+
 }

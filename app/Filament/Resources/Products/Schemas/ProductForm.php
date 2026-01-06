@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
@@ -16,7 +17,17 @@ class ProductForm
         return $schema
             ->components([
                 Section::make('Thông tin cơ bản')->schema([
-                    
+                    Select::make('category_id')
+                        ->label('Nhóm sản phẩm')
+                        ->relationship('category', 'name') // Load tên từ bảng categories
+                        ->searchable()
+                        ->preload()
+                        ->createOptionForm([
+                            TextInput::make('name')
+                                ->required()
+                                ->label('Tên nhóm mới'),
+                        ])
+                        ->required(),
                     FileUpload::make('image')
                         ->label('Hình ảnh')
                         ->image()
