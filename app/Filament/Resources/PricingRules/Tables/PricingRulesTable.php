@@ -16,7 +16,7 @@ class PricingRulesTable
     {
         return $table
             ->columns([
-                TextColumn::make('table_type')
+                TextColumn::make('tableType.name')
                     ->label('Loại bàn')
                     ->badge()
                     ->color(fn(string $state): string => match ($state) {

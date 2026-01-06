@@ -2,17 +2,15 @@
 
 namespace App\Filament\Resources\Tables\Tables;
 
-use App\Models\Customer;
-use App\Models\CustomerRank;
-use App\Models\GameSession;
-use App\Models\OrderItem;
-use App\Models\PricingRule;
 use App\Models\Product;
-use App\Models\ShopSetting;
 use App\Models\Table as TableModel;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\Action;
+
+use App\Services\TableService;
+use App\Services\InventoryService;
+use App\Services\BillingService;
 
 // Import Action chuẩn
 use Filament\Forms\Components\Placeholder;
@@ -60,7 +58,21 @@ class TablesTable
                     ->color('success')
                     ->visible(fn(TableModel $record) => !$record->hasRunningSession())
                     ->requiresConfirmation()
-                    ->action(fn(TableModel $record) => self::startSession($record)),
+                    ->action(function (TableModel $record) {
+                        // 🟢 GỌI TABLE SERVICE
+                        $service = new TableService();
+
+                        $error = $service->checkAvailability($record);
+                        if ($error) {
+                            Notification::make()->title('⛔ Trùng lịch')->body($error)->danger()
+                                ->actions([Action::make('view')->url('/admin/bookings')->button()])
+                                ->persistent()->send();
+                            return;
+                        }
+
+                        $service->startSession($record);
+                        Notification::make()->title('Đã mở bàn!')->success()->send();
+                    }),
 
                 // === ACTION: GỌI MÓN (BEST SELLER) ===
                 Action::make('order')
@@ -98,7 +110,7 @@ class TablesTable
                                                     : 'https://placehold.co/50x50?text=No+Img';
 
                                                 $badge = '';
-                                                if (in_array($product->id, $topProductIds)) {
+                                                if (in_array($product->id, $topProductIds, true)) {
                                                     $badge
                                                         = "<span style='background: #ef4444; color: white; font-size: 10px; padding: 2px 6px; border-radius: 99px; font-weight: bold; margin-left: 5px;'>🔥 HOT</span>";
                                                 }
@@ -106,7 +118,7 @@ class TablesTable
                                                 $html = "
                                                     <div class='flex items-center gap-2'>
                                                         <div style='position: relative;'>
-                                                            <img src='{$imgUrl}' style='width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid #eee;'>
+                                                            <img alt='' src='{$imgUrl}' style='width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid #eee;'>
                                                         </div>
                                                         <div>
                                                             <div class='font-bold text-sm'>{$product->name} {$badge}</div>
@@ -133,7 +145,15 @@ class TablesTable
                             ->addActionLabel('➕ Thêm món'),
                     ])
                     ->action(function (TableModel $record, array $data) {
-                        self::orderItems($record, $data);
+                        // 🟢 GỌI INVENTORY SERVICE
+                        $service = new InventoryService();
+                        $errors = $service->orderItems($record->currentSession, $data['items']);
+
+                        if (!empty($errors)) {
+                            Notification::make()->title('Lỗi kho')->body(implode("\n", $errors))->warning()->send();
+                        } else {
+                            Notification::make()->title('Lên món thành công')->success()->send();
+                        }
                     }),
 
                 // === ACTION: TÍNH TIỀN (LOGIC MỚI) ===
@@ -228,156 +248,31 @@ class TablesTable
                             ]),
                     ])
                     // === LOGIC TÍNH TIỀN MỚI Ở ĐÂY ===
-                    ->action(
-                        function (
-                            TableModel $record,
-                            array $data,
-                            Action $action
-                        ) {
-                            // === 1. KIỂM TRA CA LÀM VIỆC ===
-                            $currentShift = \App\Models\WorkShift::myCurrentShift();
-                            if (!$currentShift) {
-                                Notification::make()
-                                    ->title('Chưa mở ca làm việc!')
-                                    ->body('Bạn phải "Vào Ca" trước khi thực hiện thanh toán.')
-                                    ->danger()
-                                    ->actions([
-                                        Action::make('open_shift')
-                                            ->label('Đi mở ca ngay')
-                                            ->url('/admin/work-shifts')
-                                            ->button(),
-                                    ])
-                                    ->persistent()
-                                    ->send();
+                    ->action(function (TableModel $record, array $data, Action $action) {
+                        // 🟢 GỌI BILLING SERVICE
+                        $service = new BillingService();
+                        $session = $record->currentSession;
 
-                                $action->halt();
-                                return;
+                        // Bước 1: Tính tiền giờ & Dịch vụ
+                        $timeMoney = $service->calculateTimeFee($record, $session);
+                        $serviceMoney = $session->orderItems->sum('total');
+                        $subTotal = $timeMoney + $serviceMoney;
+
+                        try {
+                            // Bước 2: Chốt đơn
+                            $msg = $service->processCheckout($session, $data, $subTotal);
+
+                            if ($msg) {
+                                Notification::make()->title($msg)->success()->persistent()->send();
                             }
 
-                            $session = $record->currentSession;
-                            if (!$session) {
-                                Notification::make()->title('Lỗi phiên chơi')->danger()->send();
-                                return;
-                            }
-
-                            // 2. TÍNH TỔNG TIỀN GỐC (SUBTOTAL)
-                            $timeMoney = self::calculateTimeMoney($record, $session);
-                            $serviceMoney = $session->orderItems->sum('total');
-                            $subTotal = $timeMoney + $serviceMoney;
-
-                            // 3. XỬ LÝ GIẢM GIÁ
-                            $discount = 0;
-                            if ($data['discount_percent'] > 0) {
-                                $discount = ($subTotal * $data['discount_percent']) / 100;
-                            } elseif ($data['discount_amount'] > 0) {
-                                $discount = $data['discount_amount'];
-                            }
-
-                            // Validate giảm giá
-                            if ($discount > $subTotal) {
-                                Notification::make()
-                                    ->title('Giảm giá không hợp lệ!')
-                                    ->body(
-                                        'Số tiền giảm ('.number_format($discount).') lớn hơn tổng tiền ('.number_format(
-                                            $subTotal
-                                        ).').'
-                                    )
-                                    ->danger()
-                                    ->persistent()
-                                    ->send();
-
-                                $action->halt();
-                                return;
-                            }
-
-                            // Tính tổng tiền sơ bộ (chưa làm tròn)
-                            $finalTotal = $subTotal - $discount;
-
-                            // ============================================================
-                            // === 4. LOGIC LÀM TRÒN TIỀN THÔNG MINH (MỚI THÊM) ===
-                            // ============================================================
-
-                            // Lấy cấu hình từ ShopSetting
-                            $setting = ShopSetting::first();
-                            $roundingMode = $setting?->rounding_mode ?? 'none';
-                            $roundingDiff = 0; // Biến lưu số tiền chênh lệch
-
-                            // Chỉ làm tròn khi tiền > 0 và có bật chế độ làm tròn
-                            if ($finalTotal > 0 && $roundingMode !== 'none') {
-                                $originalTotal = $finalTotal;
-
-                                switch ($roundingMode) {
-                                    case 'down': // Luôn làm tròn XUỐNG (43.900 -> 43.000)
-                                        $finalTotal = floor($originalTotal / 1000) * 1000;
-                                        break;
-
-                                    case 'up': // Luôn làm tròn LÊN (43.100 -> 44.000)
-                                        $finalTotal = ceil($originalTotal / 1000) * 1000;
-                                        break;
-
-                                    case 'auto': // Tự động (>=500 lên, <500 xuống)
-                                        $finalTotal = round($originalTotal / 1000) * 1000;
-                                        break;
-                                }
-
-                                $roundingDiff = $finalTotal - $originalTotal;
-                            }
-                            // ============================================================
-
-                            // 5. LƯU DỮ LIỆU (Cập nhật cả rounding_amount)
-                            $session->update([
-                                'end_time'         => now(),
-                                'total_money'      => $finalTotal,
-                                'rounding_amount'  => $roundingDiff,
-                                'payment_method'   => $data['payment_method'],
-                                'discount_percent' => $data['discount_percent'],
-                                'discount_amount'  => $data['discount_amount'],
-                                'note'             => $data['note'],
-                                'status'           => 'completed',
-                                'customer_id'      => $data['customer_id'],
-                                'work_shift_id'    => $currentShift->id,
-                            ]);
-
-                            // 6. CỘNG ĐIỂM & XẾP HẠNG (Dùng finalTotal đã làm tròn để tính điểm)
-                            if ($data['customer_id']) {
-                                $customer = Customer::find($data['customer_id']);
-                                if ($customer) {
-                                    $customer->total_spending += $finalTotal;
-                                    $pointsEarned = floor($finalTotal / 100000); // 100k = 1 điểm
-                                    $customer->points += $pointsEarned;
-
-                                    // Check lên hạng
-                                    $newRank = CustomerRank::where(
-                                        'min_spending',
-                                        '<=',
-                                        $customer->total_spending
-                                    )
-                                        ->orderByDesc('min_spending')
-                                        ->first();
-
-                                    if ($newRank && $customer->customer_rank_id !== $newRank->id) {
-                                        $customer->customer_rank_id = $newRank->id;
-                                        Notification::make()
-                                            ->title("🎉 KHÁCH LÊN HẠNG!")
-                                            ->body("{$customer->name} đã đạt hạng: {$newRank->name}")
-                                            ->success()
-                                            ->persistent()
-                                            ->send();
-                                    }
-                                    $customer->save();
-
-                                    Notification::make()
-                                        ->title("Đã cộng {$pointsEarned} điểm cho {$customer->name}!")
-                                        ->success()
-                                        ->send();
-                                }
-                            }
-
-                            Notification::make()->title('Thanh toán thành công!')->success()->send();
-
+                            Notification::make()->title('Thanh toán xong!')->success()->send();
                             return redirect()->route('invoice.print', $session->id);
+                        } catch (\Exception $e) {
+                            Notification::make()->title('Lỗi')->body($e->getMessage())->danger()->send();
+                            $action->halt();
                         }
-                    ),
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -390,119 +285,6 @@ class TablesTable
      | BUSINESS LOGIC
      ========================================================= */
 
-    protected static function startSession(TableModel $table): void
-    {
-        // LOGIC CHẶN MỞ BÀN NẾU CÓ LỊCH ĐẶT
-        $upcomingBooking = \App\Models\Booking::where('table_id', $table->id)
-            ->where('status', 'pending')
-            ->whereBetween('booking_time', [
-                now()->subMinutes(10), // Cho phép trễ 10p
-                now()->addMinutes(60), // Chặn trước 60p
-            ])
-            ->first();
-
-        if ($upcomingBooking) {
-            $isLate = $upcomingBooking->booking_time->lessThan(now());
-            $timeText = $upcomingBooking->booking_time->format('H:i');
-
-            $msg = $isLate
-                ? "Bàn này có khách đặt lúc {$timeText} (Đang trễ nhưng chưa hủy). Vui lòng check-in cho khách đặt!"
-                : "Bàn này có khách đặt lúc {$timeText}. Không thể nhận khách vãng lai!";
-
-            Notification::make()
-                ->title('⛔ CẢNH BÁO TRÙNG LỊCH!')
-                ->body($msg)
-                ->danger()
-                ->persistent()
-                ->actions([
-                    Action::make('view_booking')
-                        ->label('Xử lý lịch đặt')
-                        ->button()
-                        ->url('/admin/bookings'),
-                ])
-                ->send();
-
-            return;
-        }
-
-        GameSession::create([
-            'table_id'   => $table->id,
-            'start_time' => now(),
-            'status'     => 'running',
-        ]);
-        Notification::make()->title('Đã mở bàn thành công!')->success()->send();
-    }
-
-    protected static function orderItems(TableModel $table, array $data): void
-    {
-        $session = $table->currentSession;
-        if (!$session) {
-            return;
-        }
-
-        $errors = [];
-
-        foreach ($data['items'] as $item) {
-            $product = Product::with('comboItems')->find($item['product_id']); // Load kèm comboItems
-            if (!$product) {
-                continue;
-            }
-
-            $orderQty = $item['quantity']; // Khách gọi bao nhiêu combo
-
-            // === TRƯỜNG HỢP 1: LÀ COMBO ===
-            if ($product->is_combo) {
-                // 1. Kiểm tra đủ hàng không?
-                foreach ($product->comboItems as $child) {
-                    $neededQty = $child->pivot->quantity * $orderQty; // Cần: 5 bia * 2 combo = 10 bia
-                    if ($child->stock < $neededQty) {
-                        $errors[]
-                            = "Không đủ hàng cho Combo: Món '{$child->name}' thiếu (Cần {$neededQty}, còn {$child->stock})";
-                    }
-                }
-
-                // Nếu có lỗi thiếu hàng thì bỏ qua, không bán combo này
-                if (count($errors) > 0) {
-                    continue;
-                }
-
-                // 2. Nếu đủ hàng -> Trừ kho các món con
-                foreach ($product->comboItems as $child) {
-                    $deductQty = $child->pivot->quantity * $orderQty;
-                    $child->decrement('stock', $deductQty);
-                }
-            } // === TRƯỜNG HỢP 2: LÀ MÓN THƯỜNG ===
-            else {
-                if ($product->stock < $orderQty) {
-                    $errors[] = "Món '{$product->name}' chỉ còn {$product->stock}";
-                    continue;
-                }
-                $product->decrement('stock', $orderQty);
-            }
-
-            // === TẠO ORDER ITEM (Lưu vào hóa đơn) ===
-            // Dù là Combo hay Món thường thì vẫn lưu 1 dòng vào hóa đơn
-            OrderItem::create([
-                'game_session_id' => $session->id,
-                'product_id'      => $product->id,
-                'quantity'        => $orderQty,
-                'price'           => $product->price,
-                // Giá vốn của Combo = Tổng giá vốn các món con (Nếu muốn tính lãi chính xác)
-                'cost'            => $product->is_combo
-                    ? $product->comboItems->sum(fn($c) => $c->cost_price * $c->pivot->quantity)
-                    : $product->cost_price,
-                'total'           => $product->price * $orderQty,
-            ]);
-        }
-
-        // Thông báo kết quả
-        if (count($errors) > 0) {
-            Notification::make()->title('Cảnh báo kho!')->body(implode("\n", $errors))->warning()->send();
-        } else {
-            Notification::make()->title('Đã lên món thành công!')->success()->send();
-        }
-    }
-
     protected static function previewBill(TableModel $table): HtmlString|string
     {
         $session = $table->currentSession;
@@ -510,12 +292,19 @@ class TablesTable
             return 'Không tìm thấy phiên chơi!';
         }
 
-        $minutes = self::getPlayingMinutes($session);
-        $timeMoney = self::calculateTimeMoney($table, $session);
+        // 🔥 THAY ĐỔI Ở ĐÂY: Gọi Service để tính tiền thay vì tự tính
+        $billingService = new BillingService();
+        $timeMoney = $billingService->calculateTimeFee($table, $session);
+
+        // Tính phút chơi
+        $minutes = max(1, (int)ceil($session->start_time->diffInSeconds(now()) / 60));
+
+        // Load món ăn
         $session->load('orderItems.product');
         $serviceMoney = $session->orderItems->sum('total');
         $totalMoney = $timeMoney + $serviceMoney;
 
+        // Render HTML (Phần này giữ nguyên vì nó là giao diện)
         $itemsHtml = '';
         if ($session->orderItems->isEmpty()) {
             $itemsHtml = "<p class='text-xs text-gray-500'>Chưa gọi món</p>";
@@ -531,62 +320,22 @@ class TablesTable
 
         return new HtmlString(
             "
-        <div class='space-y-2 text-sm'>
-            <div class='flex justify-between'>
-                <span>⏱ <strong>Thời gian:</strong> {$minutes} phút</span>
-                <span class='font-semibold'>".number_format($timeMoney)." đ</span>
+            <div class='space-y-2 text-sm'>
+                <div class='flex justify-between'>
+                    <span>⏱ <strong>Thời gian:</strong> {$minutes} phút</span>
+                    <span class='font-semibold'>".number_format($timeMoney)." đ</span>
+                </div>
+                <div class='mt-2'>
+                    <div class='font-semibold'>🥤 Món đã gọi</div>
+                    <div class='mt-1 space-y-1'>{$itemsHtml}</div>
+                </div>
+                <div class='flex justify-between text-red-600 font-bold text-base border-t pt-2'>
+                    <span>TẠM TÍNH</span>
+                    <span>".number_format($totalMoney)." VNĐ</span>
+                </div>
             </div>
-            <div class='mt-2'>
-                <div class='font-semibold'>🥤 Món đã gọi</div>
-                <div class='mt-1 space-y-1'>{$itemsHtml}</div>
-            </div>
-            <div class='flex justify-between text-red-600 font-bold text-base border-t pt-2'>
-                <span>TẠM TÍNH</span>
-                <span>".number_format($totalMoney)." VNĐ</span>
-            </div>
-        </div>
         "
         );
-    }
-
-    protected static function calculateTimeMoney(TableModel $table, GameSession $session): int
-    {
-        $start = Carbon::parse($session->start_time);
-        $end = now();
-        if ($end->lessThan($start)) {
-            return 0;
-        }
-
-        $rules = PricingRule::where('is_active', true)
-            ->where('table_type_id', $table->table_type_id)
-            ->get();
-
-        $totalMoney = 0;
-        $current = $start->copy();
-
-        while ($current < $end) {
-            $pricePerMinute = $table->price_per_hour / 60;
-            $currentTimeString = $current->format('H:i:s');
-
-            foreach ($rules as $rule) {
-                $ruleStart = Carbon::parse($rule->start_time)->format('H:i:s');
-                $ruleEnd = Carbon::parse($rule->end_time)->format('H:i:s');
-                if ($currentTimeString >= $ruleStart && $currentTimeString < $ruleEnd) {
-                    $pricePerMinute = $rule->price_per_hour / 60;
-                    break;
-                }
-            }
-            $totalMoney += $pricePerMinute;
-            $current->addMinute();
-        }
-
-        return (int)ceil($totalMoney);
-    }
-
-    protected static function getPlayingMinutes(GameSession $session): int
-    {
-        $seconds = $session->start_time->diffInSeconds(now());
-        return max(1, (int)ceil($seconds / 60));
     }
 
 }

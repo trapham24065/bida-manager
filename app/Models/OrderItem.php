@@ -10,7 +10,17 @@ class OrderItem extends Model
 
     use HasFactory;
 
-    protected $guarded = [];
+    protected $fillable
+        = [
+            'game_session_id',
+            'product_id',
+            'quantity',
+            'price',
+            'cost',
+            'total',
+        ];
+
+//    protected $guarded = [];
 
     public function product()
     {
