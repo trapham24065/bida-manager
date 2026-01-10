@@ -32,7 +32,6 @@ class StatsOverview extends BaseWidget
             ->sum(function ($item) {
                 return $item->quantity * $item->cost;
             });
-
         // 3. Tính LÃI RÒNG (Doanh thu - Giá vốn)
         // Lưu ý: Tiền giờ được coi là lãi 100% (chi phí điện coi như chi phí cố định)
         $profitToday = $revenueToday - $costToday;

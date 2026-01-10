@@ -8,12 +8,14 @@ use Filament\Resources\Pages\ListRecords;
 
 class ListCombos extends ListRecords
 {
+
     protected static string $resource = ComboResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            CreateAction::make()->label('Tạo combo'),
         ];
     }
+
 }

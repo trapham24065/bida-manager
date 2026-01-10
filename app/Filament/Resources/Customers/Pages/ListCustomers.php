@@ -8,12 +8,15 @@ use Filament\Resources\Pages\ListRecords;
 
 class ListCustomers extends ListRecords
 {
+
     protected static string $resource = CustomerResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            CreateAction::make()
+                ->label('Tạo khách hàng'),
         ];
     }
+
 }

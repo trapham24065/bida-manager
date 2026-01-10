@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\User;
 use App\Notifications\BookingAlertNotification;
 use Carbon\Carbon;
+use Symfony\Component\Console\Command\Command as CommandAlias;
 
 class CheckBookingAlerts extends Command
 {
@@ -24,7 +25,7 @@ class CheckBookingAlerts extends Command
 
         if ($users->isEmpty()) {
             $this->warn('No users to notify.');
-            return Command::SUCCESS;
+            return CommandAlias::SUCCESS;
         }
 
         /**

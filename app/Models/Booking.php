@@ -23,7 +23,7 @@ class Booking extends Model
 
     protected $casts
         = [
-            'booking_time'     => 'datetime', // Ép kiểu thành đối tượng thời gian
+            'booking_time'     => 'datetime',
             'duration_minutes' => 'integer',
         ];
 

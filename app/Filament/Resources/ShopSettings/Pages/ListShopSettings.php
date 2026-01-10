@@ -22,7 +22,7 @@ class ListShopSettings extends ListRecords
 
         // Nếu chưa có (lần đầu tiên chạy) thì mới hiện nút Create
         return [
-            CreateAction::make(),
+            CreateAction::make()->label('Cài đặt'),
         ];
     }
 

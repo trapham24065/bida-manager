@@ -53,6 +53,7 @@ class InventoryService
                     'product_id'      => $product->id,
                     'quantity'        => $qty,
                     'price'           => $product->price,
+                    'cost'            => $product->cost_price,
                     'total'           => $product->price * $qty,
                 ]);
             }

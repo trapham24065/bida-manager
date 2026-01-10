@@ -11,7 +11,7 @@ class ProductStatsChart extends ChartWidget
 
     protected ?string $heading = 'Top 5 Món Bán Chạy Nhất';
 
-    protected static ?int $sort = 3;
+    protected static ?int $sort = 2;
 
     protected function getData(): array
     {
