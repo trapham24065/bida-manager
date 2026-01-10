@@ -20,6 +20,8 @@ class GameSessionResource extends Resource
 
     protected static ?string $navigationLabel = 'Lịch sử Chơi';
 
+    protected static ?string $pluralModelLabel = 'Lịch sử Chơi';
+
     protected static string|null|\UnitEnum $navigationGroup = 'Hệ thống'; // Gom nhóm cho gọn
 
     protected static ?string $recordTitleAttribute = 'id';

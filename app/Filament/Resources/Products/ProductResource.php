@@ -24,6 +24,10 @@ class ProductResource extends Resource
 
     protected static ?string $navigationLabel = 'Sản Phẩm';
 
+    protected static string|null|\UnitEnum $navigationGroup = 'Quản lí sản phẩm';
+
+    protected static ?string $pluralModelLabel = 'Sản Phẩm';
+
     protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Schema $schema): Schema

@@ -23,6 +23,8 @@ class ActivityLogResource extends Resource
 
     protected static ?string $navigationLabel = 'Nhật ký Chỉnh sửa';
 
+    protected static ?string $pluralModelLabel = 'Chỉnh sửa';
+
     protected static string|null|\UnitEnum $navigationGroup = 'Hệ thống';
 
     public static function form(Schema $schema): Schema

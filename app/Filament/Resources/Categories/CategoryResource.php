@@ -23,6 +23,8 @@ class CategoryResource extends Resource
 
     protected static ?string $navigationLabel = 'Danh mục Sản phẩm';
 
+    protected static string|null|\UnitEnum $navigationGroup = 'Quản lí sản phẩm';
+
     protected static ?string $modelLabel = 'Danh mục';
 
     protected static ?string $pluralModelLabel = 'Danh mục Sản phẩm';

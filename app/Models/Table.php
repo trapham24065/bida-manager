@@ -17,18 +17,19 @@ class Table extends Model
     protected $guarded = [];
 
     // Hoặc thêm vào fillable nếu dùng fillable thay vì guarded
-    protected $fillable = [
-        'name',
-        'table_type_id',
-        'price_per_hour',
-        'is_active',
-        'position_x',
-        'position_y'  // Thêm 2 cột này
-    ];
+    protected $fillable
+        = [
+            'name',
+            'table_type_id',
+            'price_per_hour',
+            'is_active',
+            'position_x',
+            'position_y',  // Thêm 2 cột này
+        ];
 
     public function tableType(): BelongsTo
     {
-        return $this->belongsTo(TableType::class);
+        return $this->belongsTo(TableType::class, 'table_type_id');
     }
 
     // Một bàn có nhiều phiên chơi
@@ -62,4 +63,5 @@ class Table extends Model
     {
         return $this->hasMany(Booking::class);
     }
+
 }

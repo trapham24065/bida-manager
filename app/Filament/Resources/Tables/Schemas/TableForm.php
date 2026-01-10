@@ -6,6 +6,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 class TableForm
@@ -29,7 +30,27 @@ class TableForm
                             ->required()
                             ->createOptionForm([
                                 TextInput::make('name')->required(),
-                            ]),
+                                // Nhớ thêm ô chọn nhóm khi tạo nhanh loại bàn
+                                Select::make('category')
+                                    ->options(['bida' => 'Bida', 'cafe' => 'Cafe'])
+                                    ->default('bida')
+                                    ->required(),
+                            ])
+                            // === THÊM ĐOẠN NÀY ===
+                            ->live() // Lắng nghe thay đổi
+                            ->afterStateUpdated(function ($state, Set $set) {
+                                if (!$state) {
+                                    return;
+                                }
+
+                                // Tìm loại bàn vừa chọn
+                                $type = \App\Models\TableType::find($state);
+
+                                // Nếu là Cafe -> Set giá về 0
+                                if ($type && $type->category === 'cafe') {
+                                    $set('price_per_hour', 0);
+                                }
+                            }),
 
                         // 3. Ô nhập giá tiền
                         TextInput::make('price_per_hour')
@@ -37,7 +58,8 @@ class TableForm
                             ->numeric()
                             ->required()
                             ->default(50000)
-                            ->suffix('VNĐ'),
+                            ->suffix('VNĐ')
+                            ->helperText('Nếu là bàn Cafe, giá sẽ tự động là 0.'),
 
                         // 4. Công tắc Bật/Tắt bàn
                         Toggle::make('is_active')
@@ -68,4 +90,5 @@ class TableForm
                     ->collapsed(),
             ]);
     }
+
 }

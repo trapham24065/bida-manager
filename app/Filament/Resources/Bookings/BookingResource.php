@@ -23,6 +23,8 @@ class BookingResource extends Resource
 
     protected static ?string $navigationLabel = 'Lịch đặt bàn';
 
+    protected static ?string $pluralModelLabel = 'Đặt chỗ';
+
     protected static ?int $sort = 2;
 
     protected static ?string $recordTitleAttribute = 'customer_name';

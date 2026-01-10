@@ -23,6 +23,8 @@ class ComboResource extends Resource
 
     protected static ?string $navigationLabel = 'Quản lý Combo';
 
+    protected static string|null|\UnitEnum $navigationGroup = 'Quản lí sản phẩm';
+
     protected static ?string $modelLabel = 'Combo';
 
     protected static ?string $slug = 'combos';

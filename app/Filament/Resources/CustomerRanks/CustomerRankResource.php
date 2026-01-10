@@ -23,6 +23,8 @@ class CustomerRankResource extends Resource
 
     protected static ?string $navigationLabel = 'Quản lí xếp hạng';
 
+    protected static ?string $pluralModelLabel = 'Xếp hạng';
+
     protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Schema $schema): Schema

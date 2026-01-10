@@ -25,6 +25,8 @@ class ShopSettingResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'id';
 
+    protected static string|null|\UnitEnum $navigationGroup = 'Hệ thống';
+
     public static function form(Schema $schema): Schema
     {
         return ShopSettingForm::configure($schema);
