@@ -23,6 +23,8 @@ class PricingRuleResource extends Resource
 
     protected static ?string $navigationLabel = 'Quy tắc định giá';
 
+    protected static ?string $pluralModelLabel = 'Quản lí định giá';
+
     protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Schema $schema): Schema

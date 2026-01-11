@@ -18,11 +18,11 @@ class GameSessionResource extends Resource
 
     protected static string|null|BackedEnum $navigationIcon = 'heroicon-o-clock';
 
-    protected static ?string $navigationLabel = 'Lịch sử Chơi';
+    protected static ?string $navigationLabel = 'Lịch sử ';
 
-    protected static ?string $pluralModelLabel = 'Lịch sử Chơi';
+    protected static ?string $pluralModelLabel = 'Lịch sử ';
 
-    protected static string|null|\UnitEnum $navigationGroup = 'Hệ thống'; // Gom nhóm cho gọn
+    protected static string|null|\UnitEnum $navigationGroup = 'Hệ thống';
 
     protected static ?string $recordTitleAttribute = 'id';
 

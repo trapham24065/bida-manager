@@ -21,6 +21,8 @@ class WorkShiftResource extends Resource
 
     protected static ?string $navigationLabel = 'Quản lý Ca & Quỹ';
 
+    protected static ?string $pluralModelLabel = 'Quản lý Ca & Quỹ';
+
     protected static ?int $navigationSort = 99;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-clock';

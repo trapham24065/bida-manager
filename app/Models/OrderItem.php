@@ -18,6 +18,7 @@ class OrderItem extends Model
             'price',
             'cost',
             'total',
+            'tax_rate',
         ];
 
 //    protected $guarded = [];

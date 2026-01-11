@@ -45,6 +45,12 @@ class TableTypeResource extends Resource
                     ->default('bida')
                     ->required()
                     ->native(false),
+                TextInput::make('tax_rate')
+                    ->label('Thuế VAT giờ chơi (%)')
+                    ->numeric()
+                    ->default(10)
+                    ->suffix('%')
+                    ->helperText('Bàn Cafe thì để 0, Bida thường là 10'),
             ]);
     }
 

@@ -55,6 +55,7 @@ class InventoryService
                     'price'           => $product->price,
                     'cost'            => $product->cost_price,
                     'total'           => $product->price * $qty,
+                    'tax_rate'        => $product->tax_rate,
                 ]);
             }
         });

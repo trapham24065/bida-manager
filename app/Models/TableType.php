@@ -11,6 +11,7 @@ class TableType extends Model
         = [
             'name',
             'category',
+            'tax_rate',
         ];
 
 }

@@ -21,10 +21,11 @@ class GameSession extends Model
             'end_time'   => 'datetime',
         ];
 
-    // Tạo liên kết ngược về Bàn (Table)
     public function bidaTable(): BelongsTo
     {
-        return $this->belongsTo(Table::class, 'table_id');
+        return $this->belongsTo(Table::class, 'table_id')->withDefault([
+            'name' => 'Mang về (Takeaway)',
+        ]);
     }
 
     public function orderItems()

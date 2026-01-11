@@ -25,6 +25,7 @@ class Product extends Model
             'image',
             'is_active',
             'is_combo',
+            'tax_rate',
         ];
 
     public function getActivitylogOptions(): LogOptions

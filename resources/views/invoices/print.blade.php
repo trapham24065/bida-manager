@@ -12,7 +12,7 @@
         body {
             font-family: 'Arial', sans-serif;
             font-size: 12px;
-            width: 72mm; /* Khổ K80 */
+            width: 72mm; /* Khổ giấy in nhiệt K80 */
             margin: 0 auto;
             padding: 5px;
             background: #fff;
@@ -46,40 +46,50 @@
     use Carbon\Carbon;
     $setting = \App\Models\ShopSetting::first();
 
-    // 1. TÍNH THỜI GIAN
+    // --- 1. XỬ LÝ THỜI GIAN ---
     $start = Carbon::parse($session->start_time);
     $end   = $session->end_time ? Carbon::parse($session->end_time) : now();
     $seconds = $end->diffInSeconds($start);
-
-    // Tính giờ hiển thị
     $minutes = max(1, (int) ceil($seconds / 60));
     $hours = intdiv($minutes, 60);
     $remainMinutes = $minutes % 60;
 
-    // 2. TÍNH TOÁN TIỀN (Logic hiển thị ngược)
-    $finalTotal = $session->total_money;
-    $serviceMoney = $session->orderItems->sum('total');
+    // --- 2. XỬ LÝ TIỀN TỆ (LOGIC MỚI CÓ VAT) ---
+    $finalTotal = $session->total_money;     // Khách thực trả
+    $vatAmount  = $session->vat_amount ?? 0; // Tiền thuế
+    $rounding   = $session->rounding_amount ?? 0; // Tiền làm tròn
+    $serviceMoney = $session->orderItems->sum('total'); // Tiền nước
 
-    // Logic tính ngược SubTotal
-    $tempSubTotal = $finalTotal;
-    if ($session->discount_percent > 0 && $session->discount_percent < 100) {
-         $tempSubTotal = $finalTotal / (1 - ($session->discount_percent / 100));
-    } else {
-        $tempSubTotal = $finalTotal + ($session->discount_amount ?? 0);
+    // Tính giá trị giảm giá (Quy đổi ra tiền mặt)
+    $discountAmount = 0;
+    if ($session->discount_amount > 0) {
+        $discountAmount = $session->discount_amount;
+    } elseif ($session->discount_percent > 0) {
+        // Nếu giảm theo %, ta cần tính ngược lại dựa trên công thức BillingService
+        // Công thức: Final = (SubTotal + VAT) - (SubTotal * %) - Rounding
+        // Để đơn giản hiển thị, ta lấy số xấp xỉ:
+        // Discount ~ (Final + Rounding - VAT) / (1 - %) * %
+        // Tuy nhiên, để chính xác nhất, ta dùng phép cộng lùi:
+        // SubTotal = Final + Discount - VAT - Rounding.
+        // Vì khó tính chính xác số SubTotal khi chưa biết Discount, ta dùng cách hiển thị an toàn:
+        // Ta tính SubTotal tạm (chưa giảm giá)
+        $tempBase = ($finalTotal - $rounding - $vatAmount);
+        if ($session->discount_percent < 100) {
+             $discountAmount = ($tempBase / (1 - $session->discount_percent/100)) * ($session->discount_percent/100);
+        }
     }
 
-    // Tiền giờ = Tổng (chưa giảm) - Tiền nước
-    $originalTimeMoney = $tempSubTotal - $serviceMoney;
+    // Tổng gốc (SubTotal) = (Khách trả - Làm tròn) + Giảm giá - VAT
+    // Đây là tổng tiền hàng + tiền giờ (Chưa thuế, chưa giảm)
+    $subTotal = ($finalTotal - $rounding) + $discountAmount - $vatAmount;
 
-    // Fix lỗi làm tròn số âm nhỏ
+    // Tiền giờ = Tổng gốc - Tiền nước
+    $originalTimeMoney = $subTotal - $serviceMoney;
+
+    // Fix lỗi làm tròn số học (đôi khi ra -1 đồng)
     if ($originalTimeMoney < 0) $originalTimeMoney = 0;
 
-    // Nếu bàn Cafe (giá 0đ) thì originalTimeMoney tự động bằng 0
-    $subTotal = $originalTimeMoney + $serviceMoney;
-    $displayDiscount = $subTotal - $finalTotal;
-
-    // Lấy tên bàn (Hỗ trợ cả quan hệ table và bidaTable)
-    $tableName = $session->table->name ?? $session->bidaTable->name ?? 'Mang về';
+    $tableName = $session->bidaTable->name ?? 'Mang về';
 @endphp
 
 {{-- ================= HEADER ================= --}}
@@ -113,37 +123,56 @@
 <div class="line"></div>
 
 {{-- ================= LIST ITEM ================= --}}
-<table>
+<table style="margin-top: 5px;">
     <thead>
     <tr>
-        <th style="width:50%">Tên món</th>
+        <th style="width:40%">Tên món</th>
         <th style="width:15%; text-align: center;">SL</th>
-        <th style="width:35%" class="text-right">Thành tiền</th>
+        {{-- Cột VAT mới thêm --}}
+        <th style="width:15%; text-align: center; font-size: 10px;">VAT</th>
+        <th style="width:30%" class="text-right">Thành tiền</th>
     </tr>
     </thead>
 
     <tbody>
 
-    {{-- 🔥 LOGIC MỚI: CHỈ HIỆN TIỀN GIỜ NẾU > 0 --}}
-    @if($originalTimeMoney > 0)
+    {{-- 1. TIỀN GIỜ (Lấy % thuế từ Loại bàn) --}}
+    @if($originalTimeMoney > 1000)
+        @php
+            // Lấy thuế suất của bàn hiện tại (Nếu bàn mang về thì là 0)
+            $timeTaxRate = $session->bidaTable?->tableType?->tax_rate ?? 0;
+        @endphp
         <tr>
             <td>
-                <strong>Tiền giờ chơi</strong>
+                <strong>Tiền giờ</strong>
                 <div style="font-size: 10px; color: #555; margin-top: 2px;">
                     ({{ $hours > 0 ? $hours.'h' : '' }}{{ $remainMinutes }}p)
                 </div>
             </td>
             <td style="text-align: center;">1</td>
+
+            {{-- Hiển thị % Thuế giờ chơi --}}
+            <td style="text-align: center; font-size: 10px;">
+                {{ $timeTaxRate > 0 ? $timeTaxRate.'%' : '-' }}
+            </td>
+
             <td class="text-right bold">{{ number_format($originalTimeMoney) }}</td>
         </tr>
     @endif
-    {{-- 🔥 HẾT LOGIC --}}
 
-    {{-- DANH SÁCH MÓN ĂN / NƯỚC --}}
+    {{-- 2. TIỀN MÓN ĂN / DỊCH VỤ --}}
     @foreach($session->orderItems as $item)
         <tr>
-            <td>{{ $item->product->name }}</td>
+            <td>
+                {{ $item->product->name }}
+            </td>
             <td style="text-align: center;">{{ $item->quantity }}</td>
+
+            {{-- Hiển thị % Thuế của từng món (Lấy từ cột tax_rate trong order_items) --}}
+            <td style="text-align: center; font-size: 10px;">
+                {{ ($item->tax_rate > 0) ? $item->tax_rate.'%' : '-' }}
+            </td>
+
             <td class="text-right">{{ number_format($item->total) }}</td>
         </tr>
     @endforeach
@@ -152,39 +181,44 @@
 
 <div class="line"></div>
 
-{{-- ================= TỔNG KẾT ================= --}}
+{{-- ================= TỔNG KẾT (PHẦN QUAN TRỌNG) ================= --}}
 <div class="text-right">
-    <p style="margin: 4px 0;">Tổng cộng: <strong>{{ number_format($subTotal) }}</strong></p>
+    {{-- Tổng tiền hàng (Chưa thuế) --}}
+    <p style="margin: 4px 0;">Cộng tiền hàng: {{ number_format($subTotal) }}</p>
 
     {{-- GIẢM GIÁ --}}
-    @if($displayDiscount > 0)
+    @if($discountAmount > 0)
         <p style="margin: 4px 0; color: #333;">
             Giảm giá
             @if($session->discount_percent > 0)
                 ({{ $session->discount_percent }}%)
             @endif:
-            -{{ number_format($displayDiscount) }}
+            -{{ number_format($discountAmount) }}
         </p>
-        @if($session->note)
-            <p style="font-size: 10px; font-style: italic; margin: 0;">({{ $session->note }})</p>
-        @endif
-        <div
-            style="border-bottom: 1px dotted #000; width: 60%; margin-left: auto; margin-top: 4px; margin-bottom: 4px;"></div>
+        <div style="border-bottom: 1px dotted #000; width: 60%; margin-left: auto;"></div>
     @endif
 
-    {{-- LÀM TRÒN (Nếu bạn có dùng logic làm tròn ở các bước trước) --}}
-    @if($session->rounding_amount != 0)
+    {{-- THUẾ VAT (MỚI) --}}
+    @if($vatAmount > 0)
+        <p style="margin: 4px 0;">
+            Thuế VAT: <strong>+{{ number_format($vatAmount) }}</strong>
+        </p>
+    @endif
+
+    {{-- LÀM TRÒN --}}
+    @if($rounding != 0)
         <p style="margin: 4px 0; font-style: italic; font-size: 11px;">
-            Làm tròn: {{ $session->rounding_amount > 0 ? '+' : '' }}{{ number_format($session->rounding_amount) }}
+            Làm tròn: {{ $rounding > 0 ? '+' : '' }}{{ number_format($rounding) }}
         </p>
     @endif
 
-    <p class="bold" style="font-size:16px; margin-top: 8px;">
+    {{-- TỔNG THANH TOÁN --}}
+    <p class="bold" style="font-size:16px; margin-top: 8px; border-top: 1px solid #000; padding-top: 5px;">
         KHÁCH TRẢ: {{ number_format($finalTotal) }} đ
     </p>
 </div>
 
-{{-- ================= THANH TOÁN QR/CASH ================= --}}
+{{-- ================= QR / CASH ================= --}}
 @if($finalTotal > 0)
     @if($session->payment_method === 'transfer' && $setting && $setting->bank_account)
         @php
@@ -195,7 +229,7 @@
         @endphp
         <div class="qr-box">
             <img src="{{ $qrUrl }}" style="width:120px; height:120px; border: 1px solid #ddd;">
-            <p class="bold" style="margin: 5px 0 0 0; font-size: 11px;">QUÉT MÃ THANH TOÁN</p>
+            <p class="bold" style="margin: 5px 0 0 0; font-size: 11px;">QUÉT MÃ ĐỂ THANH TOÁN</p>
         </div>
     @else
         <div class="cash-box">
@@ -206,8 +240,8 @@
 
 {{-- ================= FOOTER ================= --}}
 <div class="text-center" style="margin-top:15px; border-top: 1px dashed #000; padding-top: 10px;">
-    <p style="font-size: 11px; margin: 0;">Wifi: {{ $setting->wifi_pass ?? 'Không có' }}</p>
-    <p style="font-size: 11px; margin-top: 4px; font-style: italic;">Cảm ơn quý khách!</p>
+    <p style="font-size: 11px; margin: 0;">Wifi: {{ $setting->wifi_pass ?? '...' }}</p>
+    <p style="font-size: 11px; margin-top: 4px; font-style: italic;">Hẹn gặp lại quý khách!</p>
 </div>
 
 <div class="no-print text-center" style="margin-top:30px; border-top: 1px solid #eee; padding-top: 20px;">

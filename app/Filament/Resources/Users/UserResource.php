@@ -23,6 +23,8 @@ class UserResource extends Resource
 
     protected static ?string $navigationLabel = 'Quản lý Tài khoản';
 
+    protected static ?string $pluralModelLabel = 'Tài khoản';
+
     protected static ?string $recordTitleAttribute = 'email';
 
     public static function form(Schema $schema): Schema

@@ -2,9 +2,6 @@
 
 namespace App\Filament\Resources\GameSessions\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
@@ -30,9 +27,14 @@ class GameSessionsTable
                     ->searchable(),
                 // Hiển thị tên bàn (thông qua quan hệ bidaTable)
                 TextColumn::make('bidaTable.name')
-                    ->label('Bàn')
+                    ->label('Bàn / Khu vực')
+                    ->badge() // Hiển thị dạng nhãn cho đẹp
+                    ->color(fn($state) => $state === 'Mang về (Takeaway)' ? 'warning' : 'info')
+                    ->icon(
+                        fn($state) => $state === 'Mang về (Takeaway)' ? 'heroicon-m-shopping-bag'
+                            : 'heroicon-m-table-cells'
+                    )
                     ->sortable()
-                    ->searchable()
                     ->searchable(),
 
                 TextColumn::make('start_time')
@@ -125,9 +127,6 @@ class GameSessionsTable
                     ->label('Chi tiết')
                     ->modalHeading('Chi tiết hóa đơn')
                     ->color('info'), // Màu xanh dươn
-            ])
-            ->bulkActions([
-                DeleteBulkAction::make(),
             ]);
     }
 

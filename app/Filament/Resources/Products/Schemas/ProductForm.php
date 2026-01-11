@@ -43,7 +43,12 @@ class ProductForm
                         ->numeric()
                         ->suffix('VNĐ')
                         ->required(),
-
+                    TextInput::make('tax_rate')
+                        ->label('Thuế VAT (%)')
+                        ->numeric()
+                        ->default(10) // Mặc định 10%
+                        ->suffix('%')
+                        ->required(),
                     TextInput::make('stock')
                         ->label('Tồn kho hiện tại')
                         ->numeric()
