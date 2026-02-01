@@ -182,6 +182,71 @@ class VisualTableMap extends Page implements HasForms, HasActions
     }
 
     // ========================================
+    // ACTION: TRẢ / HỦY MÓN
+    // ========================================
+    public function returnAction(): Action
+    {
+        return Action::make('return')
+            ->label('Trả/Hủy món')
+            ->icon('heroicon-m-arrow-uturn-left')
+            ->color('gray')
+            ->modalHeading(fn(array $arguments) => 'Trả/Hủy món - ' . Table::find($arguments['table'])?->name)
+            ->modalDescription('Kho sẽ được cộng lại và tiền sẽ được trừ khỏi hóa đơn.')
+            ->modalWidth('md')
+            ->form(function (array $arguments) {
+                $table = Table::find($arguments['table']);
+                $session = $table?->currentSession;
+
+                if (!$session) {
+                    return [
+                        Placeholder::make('no_session')
+                            ->label('')
+                            ->content('Bàn chưa có phiên hoạt động.'),
+                    ];
+                }
+
+                return [
+                    Select::make('product_id')
+                        ->label('Chọn món trả')
+                        ->options(function () use ($session) {
+                            return \App\Models\OrderItem::where('game_session_id', $session->id)
+                                ->join('products', 'order_items.product_id', '=', 'products.id')
+                                ->get()
+                                ->mapWithKeys(function ($item) {
+                                    return [$item->product_id => "{$item->name} (Đang có: {$item->quantity})"];
+                                });
+                        })
+                        ->required()
+                        ->live()
+                        ->afterStateUpdated(fn(Set $set) => $set('quantity', 1)),
+
+                    TextInput::make('quantity')
+                        ->label('Số lượng trả')
+                        ->numeric()
+                        ->default(1)
+                        ->minValue(1)
+                        ->required()
+                        ->helperText('Nhập số lượng muốn trả lại'),
+                ];
+            })
+            ->action(function (array $arguments, array $data) {
+                $table = Table::find($arguments['table']);
+                if (!$table || !$table->currentSession) {
+                    Notification::make()->title('Lỗi')->body('Không tìm thấy phiên.')->danger()->send();
+                    return;
+                }
+
+                try {
+                    $service = new InventoryService();
+                    $service->returnItem($table->currentSession, $data['product_id'], $data['quantity']);
+                    Notification::make()->title('Đã trả món thành công!')->success()->send();
+                } catch (\Exception $e) {
+                    Notification::make()->title('Lỗi')->body($e->getMessage())->danger()->send();
+                }
+            });
+    }
+
+    // ========================================
     // ACTION: TÍNH TIỀN
     // ========================================
     public function stopAction(): Action

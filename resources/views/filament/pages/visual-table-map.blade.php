@@ -100,6 +100,14 @@
             background: #b91c1c;
         }
 
+        #table-map .action-popup .action-btn.btn-gray {
+            background: #6b7280;
+        }
+
+        #table-map .action-popup .action-btn.btn-gray:hover {
+            background: #4b5563;
+        }
+
         /* Animation */
         @keyframes pulse {
 
@@ -332,7 +340,7 @@
 
                     @if(!$isPlaying)
                     {{-- Bàn trống: hiện nút Bắt đầu --}}
-                    <button wire:click="mountAction('start', { table: {{ $table->id }} })" class="action-btn btn-green">
+                    <button wire:click="mountAction('start', { table: {{ $table->id }} })" x-on:click="selectedTable = null" class="action-btn btn-green">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -340,21 +348,27 @@
                         Bắt đầu
                     </button>
                     @else
-                    {{-- Bàn đang chơi --}}
-                    <button wire:click="mountAction('order', { table: {{ $table->id }} })" class="action-btn btn-amber">
+                    {{-- Bàn đang chơi: Gọi món, Trả món, Xem HĐ, Tính tiền --}}
+                    <button wire:click="mountAction('order', { table: {{ $table->id }} })" x-on:click="selectedTable = null" class="action-btn btn-amber">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                         </svg>
                         Gọi món
                     </button>
-                    <button wire:click="mountAction('viewSession', { table: {{ $table->id }} })" class="action-btn btn-blue">
+                    <button wire:click="mountAction('return', { table: {{ $table->id }} })" x-on:click="selectedTable = null" class="action-btn btn-gray">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                        </svg>
+                        Trả/Hủy
+                    </button>
+                    <button wire:click="mountAction('viewSession', { table: {{ $table->id }} })" x-on:click="selectedTable = null" class="action-btn btn-blue">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
                         Xem HĐ
                     </button>
-                    <button wire:click="mountAction('stop', { table: {{ $table->id }} })" class="action-btn btn-red">
+                    <button wire:click="mountAction('stop', { table: {{ $table->id }} })" x-on:click="selectedTable = null" class="action-btn btn-red">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                         </svg>
