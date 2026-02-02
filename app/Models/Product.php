@@ -17,16 +17,23 @@ class Product extends Model
     use HasFactory;
 
     protected $fillable
-        = [
-            'name',
-            'price',
-            'cost_price',
-            'stock',
-            'image',
-            'is_active',
-            'is_combo',
-            'tax_rate',
-        ];
+    = [
+        'name',
+        'price',
+        'cost_price',
+        'stock',
+        'image',
+        'is_active',
+        'is_combo',
+        'is_recipe',
+        'tax_rate',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+        'is_combo' => 'boolean',
+        'is_recipe' => 'boolean',
+    ];
 
     public function getActivitylogOptions(): LogOptions
     {
@@ -61,4 +68,92 @@ class Product extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function ingredients()
+    {
+        return $this->belongsToMany(Ingredient::class, 'product_ingredients')
+            ->withPivot('quantity')
+            ->withTimestamps();
+    }
+
+    /**
+     * Tính tồn kho thực tế (ảo) cho sản phẩm pha chế
+     * = MIN(tồn nguyên liệu / lượng cần) cho tất cả nguyên liệu
+     */
+    public function getAvailableStock(): int
+    {
+        // Sản phẩm thường: trả về stock trực tiếp
+        if (!$this->is_recipe) {
+            return (int) $this->stock;
+        }
+
+        // Sản phẩm pha chế: tính từ nguyên liệu
+        return $this->calculateRecipeStock();
+    }
+
+    /**
+     * Tính số lượng có thể pha chế từ nguyên liệu hiện có
+     */
+    public function calculateRecipeStock(): int
+    {
+        $ingredients = $this->ingredients;
+
+        // Không có công thức -> không thể pha
+        if ($ingredients->isEmpty()) {
+            return 0;
+        }
+
+        $availablePortions = [];
+
+        foreach ($ingredients as $ingredient) {
+            $needed = $ingredient->pivot->quantity; // Lượng cần cho 1 phần
+
+            if ($needed <= 0) {
+                continue;
+            }
+
+            // Số phần có thể pha từ nguyên liệu này
+            $portions = floor($ingredient->stock / $needed);
+            $availablePortions[] = $portions;
+        }
+
+        // Trả về MIN (nguyên liệu ít nhất quyết định số lượng có thể pha)
+        return empty($availablePortions) ? 0 : (int) min($availablePortions);
+    }
+
+    /**
+     * Kiểm tra có đủ nguyên liệu để pha chế không
+     */
+    public function canMakeRecipe(int $quantity = 1): bool
+    {
+        if (!$this->is_recipe) {
+            return $this->stock >= $quantity;
+        }
+
+        return $this->calculateRecipeStock() >= $quantity;
+    }
+
+    /**
+     * Lấy danh sách nguyên liệu thiếu (nếu có)
+     */
+    public function getMissingIngredients(int $quantity = 1): array
+    {
+        if (!$this->is_recipe) {
+            return [];
+        }
+
+        $missing = [];
+        foreach ($this->ingredients as $ingredient) {
+            $needed = $ingredient->pivot->quantity * $quantity;
+            if ($ingredient->stock < $needed) {
+                $missing[] = [
+                    'ingredient' => $ingredient,
+                    'needed' => $needed,
+                    'available' => $ingredient->stock,
+                    'shortage' => $needed - $ingredient->stock,
+                ];
+            }
+        }
+
+        return $missing;
+    }
 }

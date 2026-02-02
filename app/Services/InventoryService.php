@@ -17,34 +17,53 @@ class InventoryService
 
         DB::transaction(function () use ($session, $itemsData, &$errors) {
             foreach ($itemsData as $item) {
-                $product = Product::with('comboItems')->find($item['product_id']);
+                $product = Product::with(['comboItems', 'ingredients'])->find($item['product_id']);
                 if (!$product) {
                     continue;
                 }
                 $qty = $item['quantity'];
 
-                // 1. Kiểm tra kho
+                // 1. Kiểm tra kho theo loại sản phẩm
                 if ($product->is_combo) {
+                    // Combo: kiểm tra tồn kho từng món con
                     foreach ($product->comboItems as $child) {
                         $needed = $child->pivot->quantity * $qty;
                         if ($child->stock < $needed) {
                             $errors[] = "Thiếu hàng Combo: {$child->name}";
                         }
                     }
-                } elseif ($product->stock < $qty) {
-                    $errors[] = "Món {$product->name} hết hàng (Còn {$product->stock})";
+                } elseif ($product->is_recipe) {
+                    // Sản phẩm pha chế: kiểm tra nguyên liệu
+                    foreach ($product->ingredients as $ingredient) {
+                        $needed = $ingredient->pivot->quantity * $qty;
+                        if ($ingredient->stock < $needed) {
+                            $errors[] = "Thiếu nguyên liệu: {$ingredient->name} (Cần {$needed}{$ingredient->unit}, còn {$ingredient->stock}{$ingredient->unit})";
+                        }
+                    }
+                } else {
+                    // Sản phẩm thường: kiểm tra tồn kho trực tiếp
+                    if ($product->stock < $qty) {
+                        $errors[] = "Món {$product->name} hết hàng (Còn {$product->stock})";
+                    }
                 }
 
                 if (!empty($errors)) {
                     continue;
                 } // Lỗi thì bỏ qua món này
 
-                // 2. Trừ kho
+                // 2. Trừ kho theo loại sản phẩm
                 if ($product->is_combo) {
+                    // Combo: trừ tồn kho từng món con
                     foreach ($product->comboItems as $c) {
                         $c->decrement('stock', $c->pivot->quantity * $qty);
                     }
+                } elseif ($product->is_recipe) {
+                    // Sản phẩm pha chế: trừ nguyên liệu
+                    foreach ($product->ingredients as $ingredient) {
+                        $ingredient->decrementStock($ingredient->pivot->quantity * $qty);
+                    }
                 } else {
+                    // Sản phẩm thường: trừ tồn kho trực tiếp
                     $product->decrement('stock', $qty);
                 }
 
@@ -85,16 +104,21 @@ class InventoryService
                 );
             }
 
-            $product = Product::with('comboItems')->find($productId);
+            $product = Product::with(['comboItems', 'ingredients'])->find($productId);
 
-            // 2. Cộng lại tồn kho (Restock)
+            // 2. Cộng lại tồn kho (Restock) theo loại sản phẩm
             if ($product->is_combo) {
+                // Combo: cộng lại tồn kho từng món con
                 foreach ($product->comboItems as $child) {
-                    // Cộng lại số lượng hàng con tương ứng
                     $child->increment('stock', $child->pivot->quantity * $quantityToReturn);
                 }
+            } elseif ($product->is_recipe) {
+                // Sản phẩm pha chế: cộng lại nguyên liệu
+                foreach ($product->ingredients as $ingredient) {
+                    $ingredient->incrementStock($ingredient->pivot->quantity * $quantityToReturn);
+                }
             } else {
-                // Cộng lại hàng đơn
+                // Sản phẩm thường: cộng lại tồn kho trực tiếp
                 $product->increment('stock', $quantityToReturn);
             }
 
@@ -114,5 +138,4 @@ class InventoryService
             }
         });
     }
-
 }

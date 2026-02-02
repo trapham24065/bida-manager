@@ -43,18 +43,38 @@ class ProductsTable
                     ->money('VND'),
 
                 TextColumn::make('cost_price') // Nên hiện thêm cột này để Admin soi lãi
-                ->label('Giá vốn')
+                    ->label('Giá vốn')
                     ->money('VND')
                     ->toggleable(isToggledHiddenByDefault: true), // Mặc định ẩn, muốn xem thì bật
 
                 TextColumn::make('stock')
                     ->label('Tồn kho')
                     ->badge()
-                    ->color(fn(string $state): string => match (true) {
-                        $state <= 10 => 'danger',
-                        $state <= 20 => 'warning',
-                        default => 'success',
+                    ->formatStateUsing(function (Product $record) {
+                        // Sản phẩm pha chế: hiển thị tồn kho ảo (tính từ nguyên liệu)
+                        if ($record->is_recipe) {
+                            $availableStock = $record->getAvailableStock();
+                            return $availableStock . ' (pha chế)';
+                        }
+                        return $record->stock;
+                    })
+                    ->color(function (Product $record): string {
+                        $stock = $record->is_recipe ? $record->getAvailableStock() : $record->stock;
+                        return match (true) {
+                            $stock <= 10 => 'danger',
+                            $stock <= 20 => 'warning',
+                            default => 'success',
+                        };
                     }),
+
+                IconColumn::make('is_recipe')
+                    ->boolean()
+                    ->label('Pha chế')
+                    ->trueIcon('heroicon-o-beaker')
+                    ->falseIcon('heroicon-o-x-mark')
+                    ->trueColor('info')
+                    ->falseColor('gray')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 IconColumn::make('is_active')->boolean()->label('Mở bán'),
             ])
@@ -66,11 +86,12 @@ class ProductsTable
             ->recordActions([
                 EditAction::make(),
 
+                // Nút nhập hàng - chỉ hiện cho sản phẩm thường (không phải pha chế)
                 Action::make('import_stock')
                     ->label('Nhập hàng')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('info')
-                    ->visible(fn() => auth()->user()->role === 'admin') // Chỉ Admin mới được nhập
+                    ->visible(fn(Product $record) => auth()->user()->role === 'admin' && !$record->is_recipe)
                     ->form([
                         TextInput::make('quantity')
                             ->label('Số lượng nhập thêm')
@@ -88,7 +109,7 @@ class ProductsTable
                             ->helperText('Nhập giá gốc mua vào để tính lại giá vốn trung bình.'),
 
                         Textarea::make('note') // Đổi sang Textarea nhập cho thoải mái
-                        ->label('Ghi chú')
+                            ->label('Ghi chú')
                             ->placeholder('VD: Nhập từ đại lý Bia Sài Gòn...'),
                     ])
                     ->action(function (Product $record, array $data) {
@@ -131,7 +152,7 @@ class ProductsTable
 
                         Notification::make()
                             ->title('Nhập hàng thành công!')
-                            ->body("Đã cộng {$importQty} vào kho. Giá vốn mới: ".number_format($newCost)." đ")
+                            ->body("Đã cộng {$importQty} vào kho. Giá vốn mới: " . number_format($newCost) . " đ")
                             ->success()
                             ->send();
                     }),
@@ -142,5 +163,4 @@ class ProductsTable
                 ]),
             ]);
     }
-
 }
