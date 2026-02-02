@@ -19,23 +19,24 @@ class RevenueStatsOverview extends StatsOverviewWidget
 
     protected function getStats(): array
     {
-        // Doanh thu TUẦN NÀY (dùng end_time - thời điểm thanh toán)
+        // Doanh thu TUẦN NÀY (dùng start_time - ngày mở bàn)
+        // VD: Khách chơi từ 11h đêm đến 2h sáng → Tính vào tuần của ngày mở bàn
         $weekRevenue = GameSession::where('status', 'completed')
-            ->whereBetween('end_time', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
+            ->whereBetween('start_time', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
             ->sum('total_money');
 
-        // So sánh với tuần trước (để hiện mũi tên tăng/giảm)
+        // So sánh với tuần trước
         $lastWeekRevenue = GameSession::where('status', 'completed')
-            ->whereBetween('end_time', [
+            ->whereBetween('start_time', [
                 Carbon::now()->subWeek()->startOfWeek(),
                 Carbon::now()->subWeek()->endOfWeek(),
             ])
             ->sum('total_money');
 
-        // Doanh thu THÁNG NÀY (dùng end_time - thời điểm thanh toán)
+        // Doanh thu THÁNG NÀY (dùng start_time - ngày mở bàn)
         $monthRevenue = GameSession::where('status', 'completed')
-            ->whereMonth('end_time', Carbon::now()->month)
-            ->whereYear('end_time', Carbon::now()->year)
+            ->whereMonth('start_time', Carbon::now()->month)
+            ->whereYear('start_time', Carbon::now()->year)
             ->sum('total_money');
 
         return [

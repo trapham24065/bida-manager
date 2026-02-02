@@ -23,9 +23,10 @@ class StatsOverview extends BaseWidget
     protected function getStats(): array
     {
         // 1. Tính DOANH THU hôm nay (Tổng tiền thu về)
-        // Chỉ tính các session đã hoàn thành (đã thanh toán)
+        // Tính theo ngày MỞ BÀN (start_time) - không phải ngày thanh toán
+        // VD: Khách chơi từ 11h đêm đến 2h sáng → Tính vào doanh thu ngày hôm trước
         $revenueToday = GameSession::where('status', 'completed')
-            ->whereDate('end_time', Carbon::today())
+            ->whereDate('start_time', Carbon::today())
             ->sum('total_money');
 
         // 2. Tính GIÁ VỐN hàng bán hôm nay
