@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Builder;
 use pxlrbt\FilamentExcel\Exports\ExcelExport;
 use pxlrbt\FilamentExcel\Columns\Column;
 use pxlrbt\FilamentExcel\Actions\Tables\ExportAction;
+use Filament\Actions\Action;
+use App\Services\TableManagementService;
+use Filament\Notifications\Notification;
 
 class GameSessionsTable
 {
@@ -63,8 +66,25 @@ class GameSessionsTable
                     ->color(fn(string $state): string => match ($state) {
                         'running' => 'warning', // Màu vàng
                         'completed' => 'success', // Màu xanh
+                        'transferred' => 'info', // Màu xanh nhạt
+                        'merged' => 'gray', // Màu xám
                         default => 'gray',
+                    })
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
+                        'running' => '🔴 Đang chơi',
+                        'completed' => '✅ Thanh toán rồi',
+                        'transferred' => '🔄 Đã đổi bàn',
+                        'merged' => '🔗 Đã ghép',
+                        default => $state,
                     }),
+
+                TextColumn::make('paused_at')
+                    ->label('Trạng thái dừng')
+                    ->formatStateUsing(function ($state) {
+                        return $state ? '⏸️ Đang tạm dừng' : '▶️ Đang chạy';
+                    })
+                    ->color(fn($state) => $state ? 'warning' : 'success')
+                    ->visible(fn($record) => $record && $record->status === 'running'),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
@@ -115,6 +135,8 @@ class GameSessionsTable
                                     ->formatStateUsing(fn($state) => match ($state) {
                                         'completed' => 'Đã thanh toán',
                                         'running' => 'Đang chơi',
+                                        'transferred' => 'Đã đổi bàn',
+                                        'merged' => 'Đã ghép',
                                         default => $state,
                                     }),
                             ]),
@@ -123,6 +145,39 @@ class GameSessionsTable
                     ->color('success'),
             ])
             ->actions([
+                // ========== ACTION: PAUSE / RESUME ==========
+                Action::make('togglePause')
+                    ->label(fn($record) => ($record && $record->isPaused()) ? '▶️ Tiếp tục' : '⏸️ Tạm dừng')
+                    ->color(fn($record) => ($record && $record->isPaused()) ? 'success' : 'warning')
+                    ->icon(fn($record) => ($record && $record->isPaused()) ? 'heroicon-m-play' : 'heroicon-m-pause')
+                    ->visible(fn($record) => $record && $record->status === 'running')
+                    ->action(function ($record) {
+                        $service = new TableManagementService();
+                        try {
+                            if ($record->isPaused()) {
+                                $service->resumeSession($record);
+                                Notification::make()
+                                    ->title('✅ Tiếp tục thành công')
+                                    ->body('Bàn ' . $record->bidaTable?->name . ' đã tiếp tục chạy')
+                                    ->success()
+                                    ->send();
+                            } else {
+                                $service->pauseSession($record);
+                                Notification::make()
+                                    ->title('⏸️ Tạm dừng thành công')
+                                    ->body('Bàn ' . $record->bidaTable?->name . ' đã tạm dừng')
+                                    ->warning()
+                                    ->send();
+                            }
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('❌ Lỗi')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
                 ViewAction::make()
                     ->label('Chi tiết')
                     ->modalHeading('Chi tiết hóa đơn')
@@ -131,3 +186,4 @@ class GameSessionsTable
     }
 
 }
+

@@ -15,7 +15,7 @@ class GameSessionForm
     public static function configure(Schema $schema): Schema
     {
         return $schema
-            ->components([
+            ->schema([
 // === CỘT 1: THÔNG TIN CHUNG ===
 Section::make('Thông tin chung')
     ->schema([
@@ -36,6 +36,33 @@ Section::make('Thông tin chung')
             ->label('Tổng tiền thanh toán')
             ->formatStateUsing(fn($state) => number_format($state).' VNĐ')
             ->disabled(),
+
+        // Hiển thị trạng thái pause
+        TextInput::make('pause_status')
+            ->label('Trạng thái dừng')
+            ->default(fn($record) => $record && $record->isPaused() 
+                ? '⏸️ Đang tạm dừng từ lúc ' . $record->paused_at?->format('H:i:s') 
+                : '▶️ Đang chạy')
+            ->disabled()
+            ->hidden(fn($record) => !$record || $record->status !== 'running'),
+
+        // Hiển thị trạng thái ghép
+        TextInput::make('merge_status')
+            ->label('Trạng thái ghép')
+            ->default(fn($record) => $record && $record->isMerged()
+                ? '🔗 Hóa đơn này đã được ghép vào #' . $record->merged_into_session_id
+                : '')
+            ->disabled()
+            ->hidden(fn($record) => !$record || !$record->isMerged()),
+
+        // Hiển thị trạng thái transfer
+        TextInput::make('transfer_status')
+            ->label('Trạng thái đổi bàn')
+            ->default(fn($record) => $record && $record->isTransferred()
+                ? '🔄 Đổi từ hóa đơn #' . $record->transferred_from_session_id . ' - Lý do: ' . ($record->transfer_reason ?? 'không')
+                : '')
+            ->disabled()
+            ->hidden(fn($record) => !$record || !$record->isTransferred()),
     ])->columns(2), // Chia 2 cột cho đẹp
 
 // === CỘT 2: DANH SÁCH MÓN ĐÃ GỌI (QUAN TRỌNG) ===

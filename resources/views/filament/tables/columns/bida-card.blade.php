@@ -5,7 +5,7 @@
 @endphp
 <div class="flex items-center gap-4">
     {{-- Kiểm tra qua quan hệ tableType --}}
-    @if($getRecord()->tableType->category === 'cafe')
+    @if($getRecord()->tableType?->category === 'cafe')
         {{-- Giao diện Cafe --}}
         <div class="p-3 rounded-full bg-orange-100 text-orange-600">
             ☕
@@ -38,8 +38,8 @@
                 {{ $record->name }}
             </h3>
 
-            <p class="text-xs text-white/70">
-                {{ strtoupper($record->type) }} · {{ number_format($record->price_per_hour / 1000) }}k/h
+                <p class="text-xs text-white/70">
+                {{ strtoupper($record->type ?? '') }} · {{ number_format(($record->price_per_hour ?? 0) / 1000) }}k/h
             </p>
 
             @if($isActive)

@@ -8,10 +8,12 @@ use App\Models\Table as TableModel;
 use Filament\Actions\Action;
 
 use App\Services\TableService;
+use App\Services\TableManagementService;
 use App\Services\InventoryService;
 use App\Services\BillingService;
 
 // Import Action chuẩn
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -37,8 +39,8 @@ class TablesTable
         return $table
             // 1. CẤU HÌNH LƯỚI
             ->contentGrid([
-                'md'  => 2,
-                'xl'  => 3,
+                'md' => 2,
+                'xl' => 3,
                 '2xl' => 4,
             ])
 
@@ -48,12 +50,13 @@ class TablesTable
             ])
 
             // 3. CẤU HÌNH ACTION
+            // 3. CẤU HÌNH ACTION
             ->recordActions([
                 // ==================================================
-                // ACTION 1: BẮT ĐẦU (MỞ BÀN)
+                // 1. NÚT BẮT ĐẦU
                 // ==================================================
                 Action::make('start')
-                    ->label('Bắt đầu')
+                    ->label('Mở bàn')
                     ->button()
                     ->icon('heroicon-o-play')
                     ->color('success')
@@ -61,7 +64,6 @@ class TablesTable
                     ->requiresConfirmation()
                     ->action(function (TableModel $record) {
                         $service = new TableService();
-
                         $error = $service->checkAvailability($record);
                         if ($error) {
                             Notification::make()->title('⛔ Trùng lịch')->body($error)->danger()
@@ -69,273 +71,373 @@ class TablesTable
                                 ->persistent()->send();
                             return;
                         }
-
                         $service->startSession($record);
                         Notification::make()->title('Đã mở bàn!')->success()->send();
                     }),
-
                 // ==================================================
-                // ACTION 2: GỌI MÓN (ORDER)
-                // ==================================================
-                Action::make('order')
-                    ->label('Gọi món')
-                    ->button()
-                    ->icon('heroicon-o-shopping-cart')
-                    ->color('warning')
-                    ->visible(fn(TableModel $record) => $record->hasRunningSession())
-                    ->modalHeading('Gọi món')
-                    ->modalWidth('lg')
-                    ->form([
-                        Repeater::make('items')
-                            ->label('Danh sách món')
-                            ->schema([
-                                Select::make('product_id')
-                                    ->label('Món')
-                                    ->options(function () {
-                                        // Logic lấy Top Seller
-                                        $topProductIds = \App\Models\OrderItem::select(
-                                            'product_id',
-                                            DB::raw('SUM(quantity) as total')
-                                        )
-                                            ->groupBy('product_id')
-                                            ->orderByDesc('total')
-                                            ->limit(5)
-                                            ->pluck('product_id')
-                                            ->toArray();
-
-                                        return Product::where('is_active', true)
-                                            ->get()
-                                            ->mapWithKeys(function ($product) use ($topProductIds) {
-                                                $imgUrl = $product->image
-                                                    ? \Illuminate\Support\Facades\Storage::disk('public')->url(
-                                                        $product->image
-                                                    )
-                                                    : 'https://placehold.co/50x50?text=No+Img';
-
-                                                $badge = '';
-                                                if (in_array($product->id, $topProductIds, true)) {
-                                                    $badge
-                                                        = "<span style='background: #ef4444; color: white; font-size: 10px; padding: 2px 6px; border-radius: 99px; font-weight: bold; margin-left: 5px;'>🔥 HOT</span>";
-                                                }
-
-                                                $html = "
-                                                    <div class='flex items-center gap-2'>
-                                                        <div style='position: relative;'>
-                                                            <img alt='' src='{$imgUrl}' style='width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid #eee;'>
-                                                        </div>
-                                                        <div>
-                                                            <div class='font-bold text-sm'>{$product->name} {$badge}</div>
-                                                            <div class='text-xs text-gray-500'>" . number_format(
-                                                    $product->price
-                                                ) . " đ</div>
-                                                        </div>
-                                                    </div>";
-                                                return [$product->id => $html];
-                                            });
-                                    })
-                                    ->required()
-                                    ->searchable()
-                                    ->allowHtml(),
-
-                                TextInput::make('quantity')
-                                    ->label('SL')
-                                    ->numeric()
-                                    ->default(1)
-                                    ->minValue(1)
-                                    ->required(),
-                            ])
-                            ->columns(2)
-                            ->addActionLabel('➕ Thêm món'),
-                    ])
-                    ->action(function (TableModel $record, array $data) {
-                        $service = new InventoryService();
-                        // Chú ý: orderItems cần session, lấy record->currentSession
-                        $errors = $service->orderItems($record->currentSession, $data['items']);
-
-                        if (!empty($errors)) {
-                            Notification::make()->title('Lỗi kho')->body(implode("\n", $errors))->warning()->send();
-                        } else {
-                            Notification::make()->title('Lên món thành công')->success()->send();
-                        }
-                    }),
-
-                // ==================================================
-                // ACTION 3: TRẢ / HỦY MÓN
-                // ==================================================
-                Action::make('return_item')
-                    ->label('Trả/Hủy')
-                    ->button()
-                    ->icon('heroicon-m-arrow-uturn-left')
-                    ->color('gray')
-                    ->visible(fn(TableModel $record) => $record->hasRunningSession())
-                    ->modalHeading('Trả lại đồ uống / Hủy món')
-                    ->modalDescription('Kho sẽ được cộng lại và tiền sẽ được trừ khỏi hóa đơn.')
-                    ->modalWidth('md')
-                    ->form(function (TableModel $record) {
-                        $session = $record->currentSession;
-                        if (!$session) {
-                            return [];
-                        }
-
-                        return [
-                            // 1. Chọn món muốn trả (Chỉ hiện món đã gọi)
-                            Select::make('product_id')
-                                ->label('Chọn món trả')
-                                ->options(function () use ($session) {
-                                    return OrderItem::where('game_session_id', $session->id)
-                                        ->join('products', 'order_items.product_id', '=', 'products.id')
-                                        ->get()
-                                        ->mapWithKeys(function ($item) {
-                                            return [$item->product_id => "{$item->name} (Đang có: {$item->quantity})"];
-                                        });
-                                })
-                                ->required()
-                                ->live()
-                                ->afterStateUpdated(fn(Set $set) => $set('quantity', 1)),
-
-                            // 2. Nhập số lượng
-                            TextInput::make('quantity')
-                                ->label('Số lượng trả')
-                                ->numeric()
-                                ->default(1)
-                                ->minValue(1)
-                                ->required()
-                                // Validate max không quá số lượng đang có
-                                ->maxValue(function (Get $get) use ($session) {
-                                    $productId = $get('product_id');
-                                    if (!$productId) {
-                                        return 1;
-                                    }
-                                    $item = OrderItem::where('game_session_id', $session->id)
-                                        ->where('product_id', $productId)->first();
-                                    return $item ? $item->quantity : 1;
-                                }),
-                        ];
-                    })
-                    ->action(function (TableModel $record, array $data) {
-                        try {
-                            $service = new InventoryService();
-                            $service->returnItem($record->currentSession, $data['product_id'], $data['quantity']);
-                            Notification::make()->title('Đã trả món thành công')->success()->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->title('Lỗi')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-
-                // ==================================================
-                // ACTION 4: TÍNH TIỀN / THANH TOÁN
+                // 4. NÚT THANH TOÁN
                 // ==================================================
                 Action::make('stop')
-                    ->label('Tính tiền')
+                    ->label('Thanh toán')
                     ->button()
-                    ->icon('heroicon-o-printer')
+                    ->icon('heroicon-o-banknotes')
                     ->color('danger')
                     ->visible(fn(TableModel $record) => $record->hasRunningSession())
-                    ->modalHeading('Xác nhận thanh toán')
+                    ->modalHeading('Thanh toán')
                     ->modalSubmitActionLabel('✅ Thanh toán & In')
                     ->modalWidth('lg')
                     ->form([
-                        // 1. Xem trước hóa đơn
-                        Placeholder::make('bill_preview')
-                            ->label('Tạm tính')
+                        Placeholder::make('bill_preview')->label('Tạm tính')
                             ->content(fn(TableModel $record) => self::previewBill($record)),
 
-                        // 2. Chọn khách hàng
-                        Select::make('customer_id')
-                            ->label('Khách hàng thành viên')
+                        Select::make('customer_id')->label('Khách hàng')
                             ->options(\App\Models\Customer::all()->pluck('name', 'id'))
-                            ->searchable()
-                            ->preload()
+                            ->searchable()->preload()
                             ->createOptionForm([
-                                TextInput::make('name')->required()->label('Tên'),
-                                TextInput::make('phone')->required()->unique('customers')->label('SĐT'),
+                                TextInput::make('name')->required(),
+                                TextInput::make('phone')->required(),
                             ])
-                            ->createOptionUsing(fn(array $data) => \App\Models\Customer::create($data)->id)
-                            ->placeholder('Khách vãng lai')
-                            ->live()
-                            ->afterStateUpdated(function ($state, Set $set) {
-                                if (!$state) {
-                                    $set('discount_percent', 0);
-                                    return;
-                                }
-                                $customer = \App\Models\Customer::with('rank')->find($state);
-                                if ($customer && $customer->rank) {
-                                    $discount = $customer->rank->discount_percent;
-                                    $set('discount_percent', $discount);
-                                    if ($discount > 0) {
-                                        Notification::make()
-                                            ->title("Khách hạng: {$customer->rank->name}")
-                                            ->body("Đã tự động áp dụng giảm {$discount}%")
-                                            ->success()->send();
-                                    }
-                                } else {
-                                    $set('discount_percent', 0);
+                            ->live()->afterStateUpdated(function ($state, Set $set) {
+                                $discount = \App\Models\Customer::with('rank')->find($state)?->rank->discount_percent ??
+                                    0;
+                                $set('discount_percent', $discount);
+                                if ($discount > 0) {
+                                    Notification::make()->title("Đã áp dụng giảm {$discount}%")->success()->send();
                                 }
                             }),
 
-                        Select::make('payment_method')
-                            ->label('Hình thức thanh toán')
-                            ->options([
-                                'cash'     => 'Tiền mặt',
-                                'transfer' => 'Chuyển khoản / QR',
-                            ])
-                            ->default('cash')
-                            ->required()
-                            ->native(false),
+                        Select::make('payment_method')->options(['cash' => 'Tiền mặt', 'transfer' => 'Chuyển khoản'])
+                            ->default('cash')->required(),
 
-                        // 3. Form Giảm giá
-                        Section::make('Ưu đãi / Giảm giá')
-                            ->schema([
-                                Grid::make(2)->schema([
-                                    TextInput::make('discount_percent')
-                                        ->label('Giảm theo %')
-                                        ->numeric()
-                                        ->minValue(0)->maxValue(100)
-                                        ->default(0)
-                                        ->suffix('%')
-                                        ->live()
-                                        ->afterStateUpdated(fn(Set $set) => $set('discount_amount', 0)),
-
-                                    TextInput::make('discount_amount')
-                                        ->label('Giảm tiền mặt')
-                                        ->numeric()
-                                        ->default(0)
-                                        ->suffix('VNĐ')
-                                        ->live()
-                                        ->afterStateUpdated(fn(Set $set) => $set('discount_percent', 0)),
-                                ]),
-                                Textarea::make('note')
-                                    ->label('Ghi chú')
-                                    ->placeholder('VD: Khách quen...'),
+                        Section::make('Giảm giá')->schema([
+                            Grid::make(2)->schema([
+                                TextInput::make('discount_percent')->numeric()->suffix('%')->live()->afterStateUpdated(
+                                    fn(Set $set) => $set('discount_amount', 0)
+                                ),
+                                TextInput::make('discount_amount')->numeric()->suffix('VNĐ')->live()->afterStateUpdated(
+                                    fn(Set $set) => $set('discount_percent', 0)
+                                ),
                             ]),
+                            Textarea::make('note')->label('Ghi chú'),
+                        ]),
                     ])
                     ->action(function (TableModel $record, array $data, Action $action) {
                         $service = new BillingService();
                         $session = $record->currentSession;
-
-                        // Tải lại orderItems để đảm bảo lấy đúng tax_rate
                         $session->load('orderItems');
 
-                        // Bước 1: Tính SubTotal (Tiền giờ + Tiền nước) - Chưa thuế, chưa giảm
-                        $timeMoney = $service->calculateTimeFee($record, $session);
-                        $serviceMoney = $session->orderItems->sum('total');
-                        $subTotal = $timeMoney + $serviceMoney;
+                        $subTotal = $service->calculateTimeFee($record, $session) + $session->orderItems->sum('total');
+                        $msg = $service->processCheckout($session, $data, $subTotal);
 
-                        try {
-                            // Bước 2: Chốt đơn (Service tự lo vụ Thuế và Giảm giá)
-                            $msg = $service->processCheckout($session, $data, $subTotal);
+                        if ($msg) {
+                            Notification::make()->title($msg)->success()->persistent()->send();
+                        }
+                        Notification::make()->title('Thanh toán xong!')->success()->send();
+                        return redirect()->route('invoice.print', $session->id);
+                    }),
 
-                            if ($msg) {
-                                Notification::make()->title($msg)->success()->persistent()->send();
+                // ==================================================
+                // 3. MENU TIỆN ÍCH (Action Group)
+                // ==================================================
+                ActionGroup::make([
+                    // ==================================================
+                    // 2. NÚT GỌI MÓN (Quan trọng)
+                    // ==================================================
+                    Action::make('order')
+                        ->label('Gọi món')
+                        ->button()
+                        ->icon('heroicon-o-shopping-cart')
+                        ->color('warning')
+                        ->visible(fn(TableModel $record) => $record->hasRunningSession())
+                        ->modalHeading('📋 Gọi Món')
+                        ->modalWidth('4xl')
+                        ->form([
+                            Repeater::make('items')
+                                ->label('Danh sách món')
+                                ->schema([
+                                    Select::make('product_id')
+                                        ->label('Chọn Sản Phẩm')
+                                        ->options(function () {
+                                            $topProductIds = \App\Models\OrderItem::select(
+                                                'product_id',
+                                                DB::raw('SUM(quantity) as total')
+                                            )
+                                                ->groupBy('product_id')->orderByDesc('total')->limit(5)->pluck(
+                                                    'product_id'
+                                                )
+                                                ->toArray();
+                                            return Product::where('is_active', true)->get()->mapWithKeys(
+                                                function ($product) use ($topProductIds) {
+                                                    $imgUrl = $product->image
+                                                        ? \Illuminate\Support\Facades\Storage::disk('public')->url(
+                                                            $product->image
+                                                        )
+                                                        : 'https://placehold.co/80x80?text=No+Image';
+
+                                                    $badge = in_array($product->id, $topProductIds, true)
+                                                        ? "<span style='background: #ef4444; color: white; font-size: 10px; padding: 2px 6px; border-radius: 99px; font-weight: bold;'>🔥 HOT</span>"
+                                                        : "";
+
+                                                    $html = "
+                                                        <div style='display: flex; align-items: center; gap: 12px; padding: 8px;'>
+                                                            <img src='{$imgUrl}' style='width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb;'>
+                                                            <div>
+                                                                <div style='font-size: 14px; font-weight: 600;'>{$product->name} {$badge}</div>
+                                                                <div style='font-size: 12px; color: #ef4444; font-weight: bold;'>"
+                                                        .number_format($product->price)." đ</div>
+                                                            </div>
+                                                        </div>";
+                                                    return [$product->id => $html];
+                                                }
+                                            );
+                                        })
+                                        ->required()
+                                        ->searchable()
+                                        ->allowHtml(),
+                                    TextInput::make('quantity')
+                                        ->label('Số Lượng')
+                                        ->numeric()
+                                        ->default(1)
+                                        ->minValue(1)
+                                        ->required()
+                                        ->columnSpan('auto'),
+                                ])
+                                ->columns(1)
+                                ->addActionLabel('➕ Thêm Món'),
+                        ])
+                        ->action(function (TableModel $record, array $data) {
+                            $service = new InventoryService();
+                            $errors = $service->orderItems($record->currentSession, $data['items']);
+                            if (!empty($errors)) {
+                                Notification::make()->title('⚠️ Lỗi kho')->body(implode("\n", $errors))->warning()
+                                    ->send();
+                            } else {
+                                Notification::make()->title('✅ Lên món thành công')->success()->send();
+                            }
+                        }),
+                    // --- A. TẠM DỪNG ---
+                    Action::make('pause')
+                        ->label(
+                            fn(TableModel $record) => $record->currentSession?->isPaused() ? 'Tiếp tục tính giờ'
+                                : 'Tạm dừng tính giờ'
+                        )
+                        ->icon(
+                            fn(TableModel $record) => $record->currentSession?->isPaused() ? 'heroicon-o-play'
+                                : 'heroicon-o-pause'
+                        )
+                        ->color(fn(TableModel $record) => $record->currentSession?->isPaused() ? 'success' : 'gray')
+                        ->requiresConfirmation()
+                        ->action(function (TableModel $record) {
+                            $session = $record->currentSession;
+                            if ($session->isPaused()) {
+                                $session->resume();
+                                Notification::make()->title('Đã tiếp tục!')->success()->send();
+                            } else {
+                                $session->pause();
+                                Notification::make()->title('Đã tạm dừng!')->info()->send();
+                            }
+                        }),
+
+                    // --- B. TRẢ MÓN ---
+                    Action::make('return_item')
+                        ->label('Trả/Hủy món')
+                        ->icon('heroicon-m-arrow-uturn-left')
+                        ->color('danger')
+                        ->form(function (TableModel $record) {
+                            $session = $record->currentSession;
+                            if (!$session) {
+                                return [];
+                            }
+                            return [
+                                Select::make('product_id')->label('Món trả')
+                                    ->options(
+                                        OrderItem::where('game_session_id', $session->id)
+                                            ->join('products', 'order_items.product_id', '=', 'products.id')
+                                            ->get()->mapWithKeys(
+                                                fn($i) => [$i->product_id => "{$i->name} (SL: {$i->quantity})"]
+                                            )
+                                    )
+                                    ->required()->live()->afterStateUpdated(fn(Set $set) => $set('quantity', 1)),
+                                TextInput::make('quantity')->label('SL')->numeric()->default(1)->minValue(1)->required()
+                                    // Sửa lỗi Get ở đây
+                                    ->maxValue(function (Get $get) use ($session) {
+                                        $productId = $get('product_id');
+                                        return OrderItem::where('game_session_id', $session->id)->where(
+                                            'product_id',
+                                            $productId
+                                        )->first()?->quantity ?? 1;
+                                    }),
+                            ];
+                        })
+                        ->action(function (TableModel $record, array $data) {
+                            (new InventoryService())->returnItem(
+                                $record->currentSession,
+                                $data['product_id'],
+                                $data['quantity']
+                            );
+                            Notification::make()->title('Đã trả món')->success()->send();
+                        }),
+
+                    // --- C. ĐỔI BÀN (FIX LỖI $record) ---
+                    Action::make('transfer')
+                        ->label('Chuyển bàn')
+                        ->icon('heroicon-o-arrows-right-left')
+                        ->form([
+                            Select::make('new_table_id')
+                                ->label('Sang bàn')
+                                // 👇 QUAN TRỌNG: Truyền TableModel $record vào đây
+                                ->options(fn(TableModel $record) => TableModel::where('is_active', true)
+                                    ->where('id', '!=', $record->id)
+                                    ->get()
+                                    ->mapWithKeys(fn($t) => [$t->id => $t->name])
+                                )
+                                ->required(),
+                            Textarea::make('reason')->label('Lý do'),
+                        ])
+                        ->action(function (TableModel $record, array $data) {
+                            (new TableManagementService())->transferTableSession(
+                                $record->currentSession,
+                                $data['new_table_id'],
+                                $data['reason'] ?? ''
+                            );
+                            Notification::make()->title('Đổi bàn thành công')->success()->send();
+                        }),
+
+                    // --- D. GHÉP ĐƠN (FIX LỖI $record) ---
+                    Action::make('merge')
+                        ->label('Ghép đơn')
+                        ->icon('heroicon-o-link')
+                        ->form([
+                            Select::make('target_session_id')
+                                ->label('Ghép vào')
+                                // 👇 QUAN TRỌNG: Truyền TableModel $record vào đây
+                                ->options(fn(TableModel $record) => \App\Models\GameSession::where('status', 'running')
+                                    ->where('id', '!=', $record->currentSession?->id)
+                                    ->get()
+                                    ->mapWithKeys(fn($s) => [$s->id => $s->bidaTable?->name])
+                                )
+                                ->required(),
+                        ])
+                        ->action(function (TableModel $record, array $data) {
+                            (new TableManagementService())->mergeSession(
+                                $record->currentSession,
+                                \App\Models\GameSession::find($data['target_session_id'])
+                            );
+                            Notification::make()->title('Ghép thành công')->success()->send();
+                        }),
+                    // ==================================================
+                    // ACTION: XEM HÓA ĐƠN
+                    // ==================================================
+                    Action::make('view_bill')
+                        ->label('📄 Xem hóa đơn')
+                        ->icon('heroicon-o-receipt-refund')
+                        ->color('info')
+                        ->visible(fn(TableModel $record) => $record->hasRunningSession())
+                        ->modalHeading('Hóa Đơn Hiện Tại')
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Đóng')
+                        ->modalWidth('lg')
+                        ->modalContent(function (TableModel $record) {
+                            $table = $record;
+                            $session = $table->currentSession;
+                            if (!$session) {
+                                return 'Không tìm thấy phiên chơi!';
                             }
 
-                            Notification::make()->title('Thanh toán xong!')->success()->send();
-                            return redirect()->route('invoice.print', $session->id);
-                        } catch (\Exception $e) {
-                            Notification::make()->title('Lỗi')->body($e->getMessage())->danger()->send();
-                            $action->halt();
-                        }
-                    }),
+                            $billingService = new BillingService();
+                            $session->load('orderItems.product');
+
+                            $timeMoney = $billingService->calculateTimeFee($table, $session);
+                            $actualMinutes = $session->getActualPlayingMinutes();
+                            $pausedMinutes = (int)floor($session->getTotalPausedSeconds() / 60);
+
+                            $timeTaxRate = $table->tableType->tax_rate ?? 0;
+                            $timeTax = ($timeMoney * $timeTaxRate) / 100;
+
+                            $serviceMoney = 0;
+                            $productTax = 0;
+
+                            foreach ($session->orderItems as $item) {
+                                $serviceMoney += $item->total;
+                                $rate = $item->tax_rate ?? 0;
+                                $productTax += ($item->total * $rate) / 100;
+                            }
+
+                            $totalVat = $timeTax + $productTax;
+                            $finalTotal = $timeMoney + $serviceMoney + $totalVat;
+
+                            $itemsHtml = '';
+                            if ($session->orderItems->isEmpty()) {
+                                $itemsHtml = "<p class='text-xs text-gray-500'>Chưa gọi món</p>";
+                            } else {
+                                foreach ($session->orderItems as $item) {
+                                    $itemsHtml .= "
+                                <div class='flex justify-between text-xs'>
+                                    <span>{$item->product->name} <span class='text-gray-500'>× {$item->quantity}</span></span>
+                                    <span>".number_format($item->total)." đ</span>
+                                </div>";
+                                }
+                            }
+
+                            $vatHtml = '';
+                            if ($totalVat > 0) {
+                                $vatHtml = "
+                            <div class='flex justify-between text-xs text-gray-600 mt-1'>
+                                <span>VAT (Ước tính)</span>
+                                <span>+".number_format($totalVat)." đ</span>
+                            </div>";
+                            }
+
+                            $pauseInfo = '';
+                            if ($pausedMinutes > 0) {
+                                $pauseInfo
+                                    = "<span class='text-gray-500 text-xs'>(Đã dừng: {$pausedMinutes} phút)</span>";
+                            }
+                            if ($session->isPaused()) {
+                                $pauseInfo .= "<span class='text-orange-500 text-xs font-bold ml-1'>⏸ ĐANG TẠM DỪNG</span>";
+                            }
+
+                            return new HtmlString(
+                                "
+                            <div class='space-y-3 text-sm'>
+                                <div class='bg-blue-50 border border-blue-200 rounded-lg p-3'>
+                                    <div class='text-xs text-blue-600 font-semibold mb-2'>⏱ THỜI GIAN CHƠI</div>
+                                    <div class='flex justify-between items-center'>
+                                        <span class='text-lg font-bold text-blue-900'>{$actualMinutes} phút</span>
+                                        <span class='text-lg font-bold text-red-600'>".number_format($timeMoney)." đ</span>
+                                    </div>
+                                    <div class='mt-1 text-xs text-gray-600'>{$pauseInfo}</div>
+                                </div>
+
+                                <div class='bg-green-50 border border-green-200 rounded-lg p-3'>
+                                    <div class='text-xs text-green-600 font-semibold mb-2'>🥤 MÓN ĐÃ GỌI</div>
+                                    <div class='space-y-1'>{$itemsHtml}</div>
+                                    <div class='flex justify-between text-xs font-semibold mt-2 pt-2 border-t border-green-200'>
+                                        <span>Tổng tiền hàng:</span>
+                                        <span>".number_format($serviceMoney)." đ</span>
+                                    </div>
+                                </div>
+
+                                {$vatHtml}
+
+                                <div class='bg-red-50 border-2 border-red-300 rounded-lg p-3'>
+                                    <div class='flex justify-between items-center'>
+                                        <span class='text-base font-bold text-red-900'>TẠMP TÍNH:</span>
+                                        <span class='text-2xl font-bold text-red-600'>".number_format($finalTotal)." đ</span>
+                                    </div>
+                                    <p class='text-[10px] text-gray-500 mt-1'>(Chưa bao gồm ưu đãi thành viên)</p>
+                                </div>
+                            </div>
+                        "
+                            );
+                        }),
+                ])
+                    ->label('Tiện ích')
+                    ->icon('heroicon-m-ellipsis-vertical')
+                    ->color('gray')
+                    ->button()
+                    ->visible(fn(TableModel $record) => $record->hasRunningSession()),
+
             ])
             ->toolbarActions([]);
     }
@@ -355,9 +457,10 @@ class TablesTable
         $billingService = new BillingService();
         $session->load('orderItems.product'); // Load món
 
-        // 1. Tính Tiền Giờ & Thuế Giờ
+        // 1. Tính Tiền Giờ & Thuế Giờ (đã trừ thời gian tạm dừng)
         $timeMoney = $billingService->calculateTimeFee($table, $session);
-        $minutes = max(1, (int)ceil($session->start_time->diffInSeconds(now()) / 60));
+        $actualMinutes = $session->getActualPlayingMinutes();
+        $pausedMinutes = (int)floor($session->getTotalPausedSeconds() / 60);
 
         $timeTaxRate = $table->tableType->tax_rate ?? 0;
         $timeTax = ($timeMoney * $timeTaxRate) / 100;
@@ -386,7 +489,7 @@ class TablesTable
                 $itemsHtml .= "
                 <div class='flex justify-between text-xs'>
                     <span>{$item->product->name} <span class='text-gray-500'>× {$item->quantity}</span></span>
-                    <span>" . number_format($item->total) . " đ</span>
+                    <span>".number_format($item->total)." đ</span>
                 </div>";
             }
         }
@@ -397,16 +500,25 @@ class TablesTable
             $vatHtml = "
             <div class='flex justify-between text-xs text-gray-600 mt-1'>
                 <span>VAT (Ước tính)</span>
-                <span>+" . number_format($totalVat) . " đ</span>
+                <span>+".number_format($totalVat)." đ</span>
             </div>";
+        }
+
+        // Hiển thị thông tin tạm dừng nếu có
+        $pauseInfo = '';
+        if ($pausedMinutes > 0) {
+            $pauseInfo = "<span class='text-gray-500 text-xs'>(Đã dừng: {$pausedMinutes} phút)</span>";
+        }
+        if ($session->isPaused()) {
+            $pauseInfo .= "<span class='text-orange-500 text-xs font-bold ml-1'>⏸ ĐANG TẠM DỪNG</span>";
         }
 
         return new HtmlString(
             "
             <div class='space-y-2 text-sm'>
                 <div class='flex justify-between'>
-                    <span>⏱ <strong>Giờ chơi:</strong> {$minutes} phút</span>
-                    <span class='font-semibold'>" . number_format($timeMoney) . " đ</span>
+                    <span>⏱ <strong>Giờ chơi:</strong> {$actualMinutes} phút {$pauseInfo}</span>
+                    <span class='font-semibold'>".number_format($timeMoney)." đ</span>
                 </div>
 
                 <div class='mt-2'>
@@ -418,7 +530,7 @@ class TablesTable
                     {$vatHtml}
                     <div class='flex justify-between text-red-600 font-bold text-base mt-1'>
                         <span>KHÁCH TRẢ</span>
-                        <span>" . number_format($finalTotal) . " VNĐ</span>
+                        <span>".number_format($finalTotal)." VNĐ</span>
                     </div>
                     <p class='text-[10px] text-gray-400 text-right italic'>(Chưa bao gồm giảm giá thành viên)</p>
                 </div>
@@ -426,4 +538,5 @@ class TablesTable
         "
         );
     }
+
 }

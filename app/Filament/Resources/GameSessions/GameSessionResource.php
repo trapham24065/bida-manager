@@ -10,6 +10,7 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
 
 class GameSessionResource extends Resource
 {
@@ -53,13 +54,13 @@ class GameSessionResource extends Resource
 // Chặn xóa lịch sử
     public static function canDelete($record): bool
     {
-        return auth()->user()->role === 'admin';
+        return Auth::user() && Auth::user()->role === 'admin';
     }
 
     // Chặn xóa nhiều dòng cùng lúc (Bulk Delete)
     public static function canDeleteAny(): bool
     {
-        return auth()->user()->role === 'admin';
+        return Auth::user() && Auth::user()->role === 'admin';
     }
 
 }

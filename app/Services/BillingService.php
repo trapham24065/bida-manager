@@ -14,36 +14,48 @@ use Illuminate\Support\Carbon;
 class BillingService
 {
 
-    // Tính tiền giờ
+    /**
+     * Tính tiền giờ (đã trừ thời gian tạm dừng)
+     */
     public function calculateTimeFee(Table $table, GameSession $session): int
     {
         if (!$table || !$session->table_id) {
             return 0;
         }
-        $start = Carbon::parse($session->start_time);
-        $end = now();
-        if ($end->lessThan($start)) {
+
+        // Lấy số phút chơi thực tế (đã trừ thời gian tạm dừng)
+        $actualMinutes = $session->getActualPlayingMinutes();
+
+        if ($actualMinutes <= 0) {
             return 0;
         }
 
+        // Lấy giá theo khung giờ
         $rules = PricingRule::where('is_active', true)
             ->where('table_type_id', $table->table_type_id)->get();
 
         $totalMoney = 0;
+        $start = Carbon::parse($session->start_time);
         $current = $start->copy();
+        $minutesCounted = 0;
 
-        while ($current < $end) {
+        // Tính tiền theo từng phút, nhưng chỉ tính số phút thực tế
+        while ($minutesCounted < $actualMinutes) {
             $pricePerMinute = $table->price_per_hour / 60;
             $nowStr = $current->format('H:i:s');
+
             foreach ($rules as $rule) {
                 if ($nowStr >= $rule->start_time && $nowStr < $rule->end_time) {
                     $pricePerMinute = $rule->price_per_hour / 60;
                     break;
                 }
             }
+
             $totalMoney += $pricePerMinute;
             $current->addMinute();
+            $minutesCounted++;
         }
+
         return (int)ceil($totalMoney);
     }
 
@@ -128,8 +140,8 @@ class BillingService
             'vat_amount'       => $totalVatAmount, // <--- LƯU TIỀN THUẾ VÀO ĐÂY
             'rounding_amount'  => $diff,
             'payment_method'   => $data['payment_method'],
-            'discount_percent' => $data['discount_percent'],
-            'discount_amount'  => $data['discount_amount'],
+            'discount_percent' => $data['discount_percent'] ?? 0,
+            'discount_amount'  => $data['discount_amount'] ?? 0,
             'note'             => $data['note'],
             'status'           => 'completed',
             'customer_id'      => $data['customer_id'],

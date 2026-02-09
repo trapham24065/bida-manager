@@ -126,28 +126,42 @@ class VisualTableMap extends Page implements HasForms, HasActions
             ->label('Gọi món')
             ->icon('heroicon-o-shopping-cart')
             ->color('warning')
-            ->modalHeading(fn(array $arguments) => 'Gọi món - ' . Table::find($arguments['table'])?->name)
-            ->modalWidth('lg')
+            ->modalHeading(fn(array $arguments) => '📋 Gọi Món - ' . Table::find($arguments['table'])?->name)
+            ->modalWidth('4xl')
             ->form([
                 Repeater::make('items')
                     ->label('Danh sách món')
                     ->schema([
                         Select::make('product_id')
-                            ->label('Món')
+                            ->label('Chọn Sản Phẩm')
                             ->options(function () {
+                                $topProductIds = \App\Models\OrderItem::select(
+                                    'product_id',
+                                    DB::raw('SUM(quantity) as total')
+                                )
+                                    ->groupBy('product_id')
+                                    ->orderByDesc('total')
+                                    ->limit(5)
+                                    ->pluck('product_id')
+                                    ->toArray();
+
                                 return Product::where('is_active', true)
                                     ->get()
-                                    ->mapWithKeys(function ($product) {
+                                    ->mapWithKeys(function ($product) use ($topProductIds) {
                                         $imgUrl = $product->image
                                             ? \Illuminate\Support\Facades\Storage::disk('public')->url($product->image)
-                                            : 'https://placehold.co/50x50?text=No+Img';
+                                            : 'https://placehold.co/80x80?text=No+Image';
+
+                                        $badge = in_array($product->id, $topProductIds, true)
+                                            ? "<span style='background: #ef4444; color: white; font-size: 10px; padding: 2px 6px; border-radius: 99px; font-weight: bold;'>🔥 HOT</span>"
+                                            : "";
 
                                         $html = "
-                                            <div class='flex items-center gap-2'>
-                                                <img alt='' src='{$imgUrl}' style='width: 40px; height: 40px; object-fit: cover; border-radius: 6px;'>
+                                            <div style='display: flex; align-items: center; gap: 12px; padding: 8px;'>
+                                                <img src='{$imgUrl}' style='width: 70px; height: 70px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb;'>
                                                 <div>
-                                                    <div class='font-bold text-sm'>{$product->name}</div>
-                                                    <div class='text-xs text-gray-500'>" . number_format($product->price) . " đ</div>
+                                                    <div style='font-size: 14px; font-weight: 600;'>{$product->name} {$badge}</div>
+                                                    <div style='font-size: 12px; color: #ef4444; font-weight: bold;'>" . number_format($product->price) . " đ</div>
                                                 </div>
                                             </div>";
                                         return [$product->id => $html];
@@ -157,14 +171,15 @@ class VisualTableMap extends Page implements HasForms, HasActions
                             ->searchable()
                             ->allowHtml(),
                         TextInput::make('quantity')
-                            ->label('Số lượng')
+                            ->label('Số Lượng')
                             ->numeric()
                             ->default(1)
                             ->minValue(1)
-                            ->required(),
+                            ->required()
+                            ->columnSpan('auto'),
                     ])
-                    ->columns(2)
-                    ->addActionLabel('➕ Thêm món'),
+                    ->columns(1)
+                    ->addActionLabel('➕ Thêm Món'),
             ])
             ->action(function (array $arguments, array $data) {
                 $table = Table::find($arguments['table']);
@@ -174,9 +189,40 @@ class VisualTableMap extends Page implements HasForms, HasActions
                 $errors = $service->orderItems($table->currentSession, $data['items']);
 
                 if (!empty($errors)) {
-                    Notification::make()->title('Lỗi kho')->body(implode("\n", $errors))->warning()->send();
+                    Notification::make()->title('⚠️ Lỗi kho')->body(implode("\n", $errors))->warning()->send();
                 } else {
-                    Notification::make()->title('Lên món thành công!')->success()->send();
+                    Notification::make()->title('✅ Lên món thành công!')->success()->send();
+                }
+            });
+    }
+
+    // ========================================
+    // ACTION: TẠM DỪNG / TIẾP TỤC
+    // ========================================
+    public function pauseAction(): Action
+    {
+        return Action::make('pause')
+            ->label(fn(array $arguments) => Table::find($arguments['table'])?->currentSession?->isPaused() ? 'Tiếp tục' : 'Tạm dừng')
+            ->icon(fn(array $arguments) => Table::find($arguments['table'])?->currentSession?->isPaused() ? 'heroicon-o-play' : 'heroicon-o-pause')
+            ->color(fn(array $arguments) => Table::find($arguments['table'])?->currentSession?->isPaused() ? 'success' : 'gray')
+            ->requiresConfirmation()
+            ->modalHeading(fn(array $arguments) => Table::find($arguments['table'])?->currentSession?->isPaused()
+                ? 'Tiếp tục tính giờ?'
+                : 'Tạm dừng tính giờ?')
+            ->modalDescription(fn(array $arguments) => Table::find($arguments['table'])?->currentSession?->isPaused()
+                ? 'Bàn sẽ tiếp tục tính tiền giờ từ bây giờ.'
+                : 'Thời gian tạm dừng sẽ không bị tính tiền.')
+            ->action(function (array $arguments) {
+                $table = Table::find($arguments['table']);
+                if (!$table || !$table->currentSession) return;
+
+                $session = $table->currentSession;
+                if ($session->isPaused()) {
+                    $session->resume();
+                    Notification::make()->title('Đã tiếp tục tính giờ!')->success()->send();
+                } else {
+                    $session->pause();
+                    Notification::make()->title('Đã tạm dừng bàn!')->info()->send();
                 }
             });
     }
