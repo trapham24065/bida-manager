@@ -20,6 +20,7 @@ class GameSession extends Model
         'start_time' => 'datetime',
         'end_time'   => 'datetime',
         'paused_at'  => 'datetime',
+        'scheduled_until' => 'datetime',
     ];
 
     public function bidaTable(): BelongsTo
@@ -123,6 +124,35 @@ class GameSession extends Model
         }
 
         return $total;
+    }
+
+    /**
+     * Schedule an automatic pause after given minutes from now (or from start_time if desired).
+     * @param int $minutes
+     * @param bool $fromStart If true, schedule from `start_time`, otherwise from now().
+     */
+    public function schedule(int $minutes, bool $fromStart = false): void
+    {
+        $base = $fromStart && $this->start_time ? \Illuminate\Support\Carbon::parse($this->start_time) : now();
+        $this->update([
+            'scheduled_minutes'   => $minutes,
+            'scheduled_until'     => $base->copy()->addMinutes($minutes),
+            'scheduled_auto_pause' => true,
+        ]);
+    }
+
+    public function isScheduled(): bool
+    {
+        return $this->scheduled_auto_pause && $this->scheduled_until !== null;
+    }
+
+    public function clearSchedule(): void
+    {
+        $this->update([
+            'scheduled_minutes'   => null,
+            'scheduled_until'     => null,
+            'scheduled_auto_pause' => false,
+        ]);
     }
 
     /**

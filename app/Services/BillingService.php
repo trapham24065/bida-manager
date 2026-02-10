@@ -45,7 +45,12 @@ class BillingService
             $nowStr = $current->format('H:i:s');
 
             foreach ($rules as $rule) {
-                if ($nowStr >= $rule->start_time && $nowStr < $rule->end_time) {
+                // Giá trị trong DB có thể được cast thành Carbon (datetime).
+                // So sánh giờ nên dùng định dạng 'H:i:s' để tránh so sánh chuỗi với datetime.
+                $ruleStart = $rule->start_time instanceof \Illuminate\Support\Carbon ? $rule->start_time->format('H:i:s') : (string)$rule->start_time;
+                $ruleEnd = $rule->end_time instanceof \Illuminate\Support\Carbon ? $rule->end_time->format('H:i:s') : (string)$rule->end_time;
+
+                if ($nowStr >= $ruleStart && $nowStr < $ruleEnd) {
                     $pricePerMinute = $rule->price_per_hour / 60;
                     break;
                 }
