@@ -50,7 +50,17 @@ class BillingService
                 $ruleStart = $rule->start_time instanceof \Illuminate\Support\Carbon ? $rule->start_time->format('H:i:s') : (string)$rule->start_time;
                 $ruleEnd = $rule->end_time instanceof \Illuminate\Support\Carbon ? $rule->end_time->format('H:i:s') : (string)$rule->end_time;
 
-                if ($nowStr >= $ruleStart && $nowStr < $ruleEnd) {
+                // Xử lý khung giờ qua ngày (VD: 22:00 -> 10:00 hôm sau)
+                $isInRange = false;
+                if ($ruleEnd > $ruleStart) {
+                    // Khung giờ bình thường (cùng ngày)
+                    $isInRange = $nowStr >= $ruleStart && $nowStr < $ruleEnd;
+                } else {
+                    // Khung giờ qua ngày (end < start)
+                    $isInRange = $nowStr >= $ruleStart || $nowStr < $ruleEnd;
+                }
+
+                if ($isInRange) {
                     $pricePerMinute = $rule->price_per_hour / 60;
                     break;
                 }

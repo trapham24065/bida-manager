@@ -22,7 +22,9 @@ return new class extends Migration {
                     ->nullable()
                     ->after('total_paused_seconds')
                     ->constrained('game_sessions')
-                    ->onDelete('set null');
+                    ->onDelete(
+                        'set null'
+                    );
             }
 
             // Hỗ trợ đổi bàn
@@ -49,4 +51,5 @@ return new class extends Migration {
             $table->dropColumn('transfer_reason');
         });
     }
+
 };

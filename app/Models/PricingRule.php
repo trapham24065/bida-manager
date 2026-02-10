@@ -12,24 +12,23 @@ class PricingRule extends Model
     use HasFactory;
 
     protected $fillable
-        = [
-            'name',
-            'start_time',
-            'end_time',
-            'price_per_hour',
-            'is_active',
-            'table_type_id',
-        ];
+    = [
+        'name',
+        'start_time',
+        'end_time',
+        'price_per_hour',
+        'is_active',
+        'table_type_id',
+    ];
 
     protected $casts
-        = [
-            'start_time' => 'datetime',
-            'end_time'   => 'datetime',
-        ];
+    = [
+        'start_time' => 'string',
+        'end_time'   => 'string',
+    ];
 
     public function tableType(): BelongsTo
     {
         return $this->belongsTo(TableType::class);
     }
-
 }
