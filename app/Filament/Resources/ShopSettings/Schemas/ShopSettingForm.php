@@ -45,6 +45,7 @@ class ShopSettingForm
                                 'ICB'  => 'VietinBank',
                                 'TPB'  => 'TPBank',
                                 'VPB'  => 'VPBank',
+                                'AGB'  => 'Agribank', // thêm ngân hàng Agribank
                             ])
                             ->searchable()
                             ->required(),
@@ -74,5 +75,4 @@ class ShopSettingForm
                     ]),
             ]);
     }
-
 }
